@@ -518,12 +518,15 @@ func (infos *Infos) wakeTCP() error {
 			log.Printf("重连 TCP 失败: %+v", err)
 			return err
 		}
-		// 重连后再次验证
-		if value, err := infos.Client.Ping(ctx); err != nil {
+		// 重连后再次验证，必须使用全新的 context，防止使用已过期的旧 context
+		newCtx, newCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer newCancel()
+		if value, err := infos.Client.Ping(newCtx); err != nil {
 			log.Printf("重连 TCP 后验证失败: %+v", err)
 			return err
 		} else {
 			log.Printf("TCP 链路已恢复, 延迟: %dms", value.Milliseconds())
+			return nil
 		}
 	}
 
