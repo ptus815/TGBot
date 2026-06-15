@@ -849,7 +849,7 @@ func hackLink(res HackLink) (links []string) {
 				case res.Pass != "":
 					link += fmt.Sprintf("&key=%s", res.Pass)
 				default:
-					log.Printf("未提供密码或哈希")
+					log.Print("未提供密码或哈希")
 				}
 			}
 		}

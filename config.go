@@ -11,6 +11,7 @@ import (
 // Conf 结构体定义了程序运行所需的各项配置参数
 // 通过 json 标签与 config.json 文件进行映射
 type Conf struct {
+	DeBUG     bool     `json:"debug"`               // 开启DeBUG日志
 	Site      string   `json:"site"`                // 反代域名, 用于生成公开访问链接
 	AppHash   string   `json:"hash"`                // Telegram API Hash, 从 my.telegram.org 获取
 	BotToken  string   `json:"botToken"`            // Telegram Bot Token, 用于交互和管理

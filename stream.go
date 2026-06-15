@@ -153,18 +153,8 @@ func (stream *Stream) download(numTask int, contentStart, contentEnd int64) {
 			return
 		case stream.Tasks <- task:
 			// 成功发送任务
-		default:
-			// 任务队列已满, 这里保持阻塞直到能存入或取消
-			log.Printf("任务队列已满: cid=%d, mid=%d, name=%s", stream.CID, stream.MID, stream.FileName)
-			select {
-			case <-stream.Ctx.Done():
-				stream.Mutex.Unlock()
-				return
-			case stream.Tasks <- task:
-				// 成功发送任务
-			}
 		}
-		
+
 		// 更新流的状态, 为下一个任务做准备
 		*stream.TaskStart = task.ContentEnd + 1
 		*stream.TaskEnd = *stream.TaskStart + chunkSize - 1
@@ -186,7 +176,9 @@ func (stream *Stream) download(numTask int, contentStart, contentEnd int64) {
 			// 下载
 			if waitUntil := infos.WaitUntil.Load(); waitUntil > 0 {
 				if remaining := time.Until(time.Unix(waitUntil, 0)); remaining > 0 {
-					log.Printf("协程%d: 检测到FloodWait, 等待 %.2f 秒", numTask, remaining.Seconds())
+					if infos.Conf.DeBUG {
+						log.Printf("协程%d: 检测到FloodWait, 等待 %.2f 秒", numTask, remaining.Seconds())
+					}
 					time.Sleep(remaining)
 				}
 			}
@@ -210,7 +202,9 @@ func (stream *Stream) download(numTask int, contentStart, contentEnd int64) {
 					return
 				case telegram.MatchError(err, "FILE_REFERENCE_EXPIRED"):
 					// 如果报错文件引用过期, 则调用 refresh 重新获取消息并更新引用
-					log.Printf("文件引用已过期: cid=%d, mid=%d, version=%d, name=%s, numTask=%d", stream.CID, stream.MID, version, fileName, numTask)
+					if infos.Conf.DeBUG {
+						log.Printf("文件引用已过期: cid=%d, mid=%d, version=%d, name=%s, numTask=%d", stream.CID, stream.MID, version, fileName, numTask)
+					}
 					if err := stream.refresh(numTask, version); err != nil {
 						task.Error = err
 						close(task.Content)
@@ -227,6 +221,7 @@ func (stream *Stream) download(numTask int, contentStart, contentEnd int64) {
 					}
 					backoff := time.Duration(backoffMs) * time.Millisecond
 					log.Printf("协程%d: TCP连接超时 %d/%d, 错误: %v, 等待 %.2f 秒后重试", numTask, num, maxCount, err, backoff.Seconds())
+
 					time.Sleep(backoff)
 					if maxWait > 0 {
 						maxWait--
@@ -246,7 +241,9 @@ func (stream *Stream) download(numTask int, contentStart, contentEnd int64) {
 								}
 							}
 						}
-						log.Printf("协程%d: 访问太过频繁, 等待 %d 秒后重试", numTask, wait+1)
+						if infos.Conf.DeBUG {
+							log.Printf("协程%d: 访问太过频繁, 等待 %d 秒后重试", numTask, wait+1)
+						}
 						waitUntil := time.Now().Add(time.Duration(wait+1) * time.Second)
 						if currentWait := infos.WaitUntil.Load(); waitUntil.Unix() > currentWait {
 							infos.WaitUntil.Store(waitUntil.Unix())
@@ -385,7 +382,9 @@ func (stream *Stream) clean() {
 					}
 					timer.Stop()
 				case <-timer.C:
-					log.Printf("清理任务时遇到阻塞过长, 强制丢弃: start=%d end=%d", task.ContentStart, task.ContentEnd)
+					if infos.Conf.DeBUG {
+						log.Printf("清理任务时遇到阻塞过长, 强制丢弃: start=%d end=%d", task.ContentStart, task.ContentEnd)
+					}
 				}
 			}
 			// 重置计时器
@@ -405,7 +404,9 @@ func (stream *Stream) refresh(numTask int, version int64) (err error) {
 
 	// 如果版本号已经变了, 说明其他协程已经完成了刷新
 	if version != stream.Version.Load() {
-		log.Printf("文件引用已刷新, 直接使用新版本: cid=%d, mid=%d, numTask=%d, version=%d, newVersion=%d", stream.CID, stream.MID, numTask, version, stream.Version.Load())
+		if infos.Conf.DeBUG {
+			log.Printf("文件引用已刷新, 直接使用新版本: cid=%d, mid=%d, numTask=%d, version=%d, newVersion=%d", stream.CID, stream.MID, numTask, version, stream.Version.Load())
+		}
 		return
 	}
 
@@ -430,8 +431,10 @@ func (stream *Stream) refresh(numTask int, version int64) (err error) {
 	}
 	// 更新流中的媒体引用
 	*stream.Src = src.Media()
-	stream.Version.Add(1) // 递增版本号
-	log.Printf("文件引用已刷新: cid=%d, mid=%d, numTask=%d, version=%d, newVersion=%d", stream.CID, stream.MID, numTask, version, stream.Version.Load())
+	stream.Version.Add(1)
+	if infos.Conf.DeBUG {
+		log.Printf("文件引用已刷新: cid=%d, mid=%d, numTask=%d, version=%d, newVersion=%d", stream.CID, stream.MID, numTask, version, stream.Version.Load())
+	}
 	return nil
 }
 
@@ -466,7 +469,9 @@ func (stream *Stream) handleCache(task *Task, cacheKey string, offset, contentEn
 		if values, ok := infos.HeadCache[cacheKey]; ok {
 			for _, value := range values.Contents {
 				if value.Start == task.ContentStart && value.End == task.ContentEnd {
-					log.Printf("命中头部缓存: cid=%d, mid=%d, name=%s, start=%d, end=%d", stream.CID, stream.MID, stream.FileName, task.ContentStart, task.ContentEnd)
+					if infos.Conf.DeBUG {
+						log.Printf("命中头部缓存: cid=%d, mid=%d, name=%s, start=%d, end=%d", stream.CID, stream.MID, stream.FileName, task.ContentStart, task.ContentEnd)
+					}
 					task.handleContent(value.Content, offset, contentEnd)
 					return true
 				}
@@ -475,14 +480,18 @@ func (stream *Stream) handleCache(task *Task, cacheKey string, offset, contentEn
 			evictOldestCache(infos.HeadCache, 4)
 			contents := make([]MediaContent, 0, int(stream.HeadSize/stream.ChunkSize))
 			infos.HeadCache[cacheKey] = &MediaCache{Contents: contents, Time: time.Now()}
-			log.Printf("头部缓存已初始化: cid=%d, mid=%d", stream.CID, stream.MID)
+			if infos.Conf.DeBUG {
+				log.Printf("头部缓存已初始化: cid=%d, mid=%d", stream.CID, stream.MID)
+			}
 			return false
 		}
 	case task.ContentStart >= stream.ContentSize-stream.TailSize:
 		if values, ok := infos.TailCache[cacheKey]; ok {
 			for _, value := range values.Contents {
 				if value.Start == task.ContentStart && value.End == task.ContentEnd {
-					log.Printf("命中尾部缓存: cid=%d, mid=%d, name=%s, start=%d, end=%d", stream.CID, stream.MID, stream.FileName, task.ContentStart, task.ContentEnd)
+					if infos.Conf.DeBUG {
+						log.Printf("命中尾部缓存: cid=%d, mid=%d, name=%s, start=%d, end=%d", stream.CID, stream.MID, stream.FileName, task.ContentStart, task.ContentEnd)
+					}
 					task.handleContent(value.Content, offset, contentEnd)
 					return true
 				}
@@ -491,7 +500,9 @@ func (stream *Stream) handleCache(task *Task, cacheKey string, offset, contentEn
 			evictOldestCache(infos.TailCache, 4)
 			contents := make([]MediaContent, 0, int(stream.TailSize/stream.ChunkSize))
 			infos.TailCache[cacheKey] = &MediaCache{Contents: contents, Time: time.Now()}
-			log.Printf("尾部缓存已初始化: cid=%d, mid=%d", stream.CID, stream.MID)
+			if infos.Conf.DeBUG {
+				log.Printf("尾部缓存已初始化: cid=%d, mid=%d", stream.CID, stream.MID)
+			}
 			return false
 		}
 	}

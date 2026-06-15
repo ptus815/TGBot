@@ -139,13 +139,13 @@ func cleanFiles(realm CleanRealm) {
 							currentID := strings.TrimSuffix(strings.TrimPrefix(name, src), ".cache")
 							if currentID != realm.ID {
 								if err := os.Remove(filepath.Join(infos.FilesPath, name)); err != nil {
-									log.Printf("删除缓存文件失败: %v", err)
+									log.Printf("删除缓存文件失败: %+v", err)
 								}
 							}
 						}
 					} else {
 						if err := os.Remove(filepath.Join(infos.FilesPath, name)); err != nil {
-							log.Printf("删除缓存文件失败: %v", err)
+							log.Printf("删除缓存文件失败: %+v", err)
 						}
 					}
 				}
@@ -154,7 +154,7 @@ func cleanFiles(realm CleanRealm) {
 	case "session":
 		name := fmt.Sprintf("%s.session", strings.ToLower(realm.Cate))
 		if err := os.Remove(filepath.Join(infos.FilesPath, name)); err != nil {
-			log.Printf("删除缓存文件失败: %v", err)
+			log.Printf("删除缓存文件失败: %+v", err)
 		}
 	}
 }

@@ -166,7 +166,7 @@ func (infos *Infos) startBot() (err error) {
 			}
 			userID, err := client.ResolvePeer(adminID)
 			if err != nil {
-				log.Printf("解析用户 ID 失败: %v", err)
+				log.Printf("解析用户 ID 失败: %+v", err)
 				continue
 			}
 			_, err = client.SetBotCommands(commonCommands, &userID)
@@ -177,7 +177,9 @@ func (infos *Infos) startBot() (err error) {
 		}
 	}()
 
-	log.Printf("Bot 启动成功")
+	if infos.Conf.DeBUG {
+		log.Printf("Bot 启动成功")
+	}
 
 	infos.Mutex.Lock()
 	infos.BotClient = client
@@ -271,7 +273,9 @@ func (infos *Infos) startUserBot(phone string) (err error) {
 			}
 
 			if status == true {
-				log.Printf("UserBot 登录成功")
+				if infos.Conf.DeBUG {
+					log.Printf("UserBot 登录成功")
+				}
 				if err := infos.checkStatus(); err != nil {
 					log.Printf("UserBot 登录失败: %+v", err)
 					infos.resetStatus()
@@ -368,7 +372,7 @@ func (infos *Infos) checkStatus() (err error) {
 	// 登录成功
 	me, err := infos.UserClient.GetMe()
 	if err != nil {
-		log.Printf("获取用户信息失败: %v", err)
+		log.Printf("获取用户信息失败: %+v", err)
 		infos.Mutex.Lock()
 		infos.Status.Store(0)
 		infos.Mutex.Unlock()
@@ -541,7 +545,9 @@ func (infos *Infos) wakeTCP(cate string) error {
 	// 最轻量探活 RPC
 	latenc, err := infos.Client.Ping(ctx)
 	if err != nil {
-		log.Printf("TCP 链路异常, 正在重连: %+v", err)
+		if infos.Conf.DeBUG {
+			log.Printf("TCP 链路异常, 正在重连: %+v", err)
+		}
 		// 强制断开
 		if err := infos.Client.Disconnect(); err != nil {
 			log.Printf("强制断开 TCP 连接失败: %+v", err)
@@ -558,7 +564,9 @@ func (infos *Infos) wakeTCP(cate string) error {
 			log.Printf("重连 TCP 后验证失败: %+v", err)
 			return err
 		} else {
-			log.Printf("TCP 链路已恢复, 延迟: %dms", value.Milliseconds())
+			if infos.Conf.DeBUG {
+				log.Printf("TCP 链路已恢复, 延迟: %dms", value.Milliseconds())
+			}
 			switch cate {
 			case "bot":
 				infos.TCPStatus.Bot.Latenc = value.Milliseconds()
@@ -571,7 +579,9 @@ func (infos *Infos) wakeTCP(cate string) error {
 		}
 	}
 
-	log.Printf("TCP 链路正常, 延迟: %dms", latenc.Milliseconds())
+	if infos.Conf.DeBUG {
+		log.Printf("TCP 链路正常, 延迟: %dms", latenc.Milliseconds())
+	}
 	switch cate {
 	case "bot":
 		infos.TCPStatus.Bot.Latenc = latenc.Milliseconds()
@@ -767,13 +777,17 @@ func (infos *Infos) handleMs(cid int64, mid int32, cate string) (result string, 
 				log.Printf("唤醒 TCP 连接失败: %+v", err)
 			}
 		} else {
-			diff := time.Since(infos.TCPStatus.User.WakeTime)
-			minutes := int(diff.Minutes())
-			seconds := int(diff.Seconds()) % 60
-			if minutes != 0 {
-				log.Printf("TCP 链路正常, %02d分%02d秒前唤醒", minutes, seconds)
-			} else {
-				log.Printf("TCP 链路正常, %02d秒前唤醒", seconds)
+			if infos.Conf.DeBUG {
+				diff := time.Since(infos.TCPStatus.User.WakeTime)
+				minutes := int(diff.Minutes())
+				seconds := int(diff.Seconds()) % 60
+				if minutes != 0 {
+					src := fmt.Sprintf("%02d分%02d秒", minutes, seconds)
+					src = strings.TrimPrefix(src, "0")
+					log.Printf("TCP 链路正常, %s前唤醒", src)
+				} else {
+					log.Printf("TCP 链路正常, %d秒前唤醒", seconds)
+				}
 			}
 		}
 	case "bot":
@@ -782,13 +796,17 @@ func (infos *Infos) handleMs(cid int64, mid int32, cate string) (result string, 
 				log.Printf("唤醒 TCP 连接失败: %+v", err)
 			}
 		} else {
-			diff := time.Since(infos.TCPStatus.Bot.WakeTime)
-			minutes := int(diff.Minutes())
-			seconds := int(diff.Seconds()) % 60
-			if minutes != 0 {
-				log.Printf("TCP 链路正常, %02d分%02d秒前唤醒", minutes, seconds)
-			} else {
-				log.Printf("TCP 链路正常, %02d秒前唤醒", seconds)
+			if infos.Conf.DeBUG {
+				diff := time.Since(infos.TCPStatus.Bot.WakeTime)
+				minutes := int(diff.Minutes())
+				seconds := int(diff.Seconds()) % 60
+				if minutes != 0 {
+					src := fmt.Sprintf("%02d分%02d秒", minutes, seconds)
+					src = strings.TrimPrefix(src, "0")
+					log.Printf("TCP 链路正常, %s前唤醒", src)
+				} else {
+					log.Printf("TCP 链路正常, %d秒前唤醒", seconds)
+				}
 			}
 		}
 	}
@@ -799,13 +817,12 @@ func (infos *Infos) handleMs(cid int64, mid int32, cate string) (result string, 
 		log.Print(err.Error())
 		return
 	}
-	
+
 	src = ms[0]
 	if !src.IsMedia() {
 		err = fmt.Errorf("消息不包含媒体: cid=%d, mid=%d", cid, mid)
 		log.Print(err.Error())
 		return
 	}
-
 	return
 }

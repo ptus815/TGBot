@@ -146,7 +146,7 @@ func main() {
 	defer func() {
 		if infos.File != nil {
 			if err := infos.File.Close(); err != nil {
-				log.Printf("关闭日志文件错误: %v", err)
+				log.Printf("关闭日志文件错误: %+v", err)
 			}
 		}
 		if infos.BotClient != nil {
@@ -228,7 +228,9 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("HTTP 服务关闭异常: %+v", err)
 	} else {
-		log.Printf("HTTP 服务已优雅关闭")
+		if infos.Conf.DeBUG {
+			log.Printf("HTTP 服务已优雅关闭")
+		}
 	}
 	sendMS(nil, "程序已退出", nil, 60)
 }
@@ -317,5 +319,7 @@ func (infos *Infos) buildRexRules() {
 		}
 		infos.RexRules = append(infos.RexRules, r)
 	}
-	log.Printf("成功预编译 %d 条正则规则", len(infos.RexRules))
+	if infos.Conf.DeBUG {
+		log.Printf("成功预编译 %d 条正则规则", len(infos.RexRules))
+	}
 }

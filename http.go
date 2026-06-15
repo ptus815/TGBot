@@ -216,6 +216,10 @@ func handlePic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "未找到缩略图", http.StatusNotFound)
 		return
 	}
+	
+	if infos.Conf.DeBUG {
+		log.Printf("开始下载封面: cid=%d, mid=%d, name=%s", cid, mid, src.File.Name)
+	}
 
 	buf := new(bytes.Buffer)
 	_, err = infos.Client.DownloadMedia(src.Media(), &telegram.DownloadOptions{
@@ -308,12 +312,14 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("开始下载: cid=%d, mid=%d, name=%s, start=%d, end=%d", cid, mid, fileName, start, end)
+	if infos.Conf.DeBUG {
+		log.Printf("开始下载: cid=%d, mid=%d, name=%s, start=%d, end=%d", cid, mid, fileName, start, end)
+	}
 
-	// 8. 缓存逻辑：检查头部/尾部缓存是否命中, 并决定实际下载起点
+	// 缓存逻辑：检查头部/尾部缓存是否命中, 并决定实际下载起点
 	stream.HeadSize, stream.TailSize = mediaCacheSizes(size)
 
-	// 9. 启动并发下载协程
+	// 启动并发下载协程
 	go stream.start(start, end)
 	defer func() {
 		stream.clean()
@@ -334,7 +340,9 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 			select {
 			case <-r.Context().Done():
 				// 客户端断开连接（如浏览器关闭或拖动进度条导致旧请求作废）
-				log.Printf("流式传输文件已取消: cid=%d, mid=%d, name=%s", cid, mid, fileName)
+				if infos.Conf.DeBUG {
+					log.Printf("流式传输文件已取消: cid=%d, mid=%d, name=%s", cid, mid, fileName)
+				}
 				return
 			case task := <-stream.Tasks:
 				// 读取一个下载好的分片任务
@@ -350,11 +358,15 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 				// 等待任务完成或者客户端断开
 				select {
 				case <-r.Context().Done():
-					log.Printf("流式传输文件已取消: cid=%d, mid=%d, name=%s", cid, mid, fileName)
+					if infos.Conf.DeBUG {
+						log.Printf("流式传输文件已取消: cid=%d, mid=%d, name=%s", cid, mid, fileName)
+					}
 					return
 				case content, ok := <-task.Content:
 					if !ok {
-						log.Printf("流式传输文件已完成: cid=%d, mid=%d, name=%s", cid, mid, fileName)
+						if infos.Conf.DeBUG {
+							log.Printf("流式传输文件已完成: cid=%d, mid=%d, name=%s", cid, mid, fileName)
+						}
 						return
 					}
 
@@ -367,7 +379,9 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 					}
 					// 检查是否已经写完当前请求的所有范围
 					if task.ContentEnd >= end {
-						log.Printf("流式传输文件已完成: cid=%d, mid=%d, name=%s", cid, mid, fileName)
+						if infos.Conf.DeBUG {
+							log.Printf("流式传输文件已完成: cid=%d, mid=%d, name=%s", cid, mid, fileName)
+						}
 						return
 					}
 					task = nil
