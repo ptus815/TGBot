@@ -109,15 +109,37 @@ func handleBotCommand(m *telegram.NewMessage) error {
 				sendMS(m, "你没有使用此命令的权限", nil, 60)
 				return nil
 			}
-			whiteID, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(text, "/disallow")), 10, 64)
+			content := strings.TrimSpace(strings.TrimPrefix(text, "/disallow"))
+			if content == "" {
+				sendMS(m, "请提供要移除的白名单索引或ID", nil, 60)
+				return nil
+			}
+
+			infos.Mutex.Lock()
+			index, err := strconv.Atoi(content)
+			if err == nil && index >= 0 && index < len(infos.Conf.WhiteIDs) {
+				// 按索引删除
+				whiteID := infos.Conf.WhiteIDs[index]
+				delete(infos.IDs, whiteID)
+				infos.Conf.WhiteIDs = append(infos.Conf.WhiteIDs[:index], infos.Conf.WhiteIDs[index+1:]...)
+				if err := saveConf(infos.Conf, infos.FilesPath); err != nil {
+					log.Printf("保存配置文件失败: %+v", err)
+				}
+				infos.Mutex.Unlock()
+				sendMS(m, fmt.Sprintf("按索引移除白名单成功: %d", whiteID), nil, 60)
+				return nil
+			}
+
+			// 按内容删除
+			whiteID, err := strconv.ParseInt(content, 10, 64)
 			if err != nil {
+				infos.Mutex.Unlock()
 				sendMS(m, fmt.Sprintf("移除白名单失败: %+v", err), nil, 60)
 				return nil
 			}
 
 			if whiteID != 0 {
 				if slices.Contains(infos.Conf.WhiteIDs, whiteID) {
-					infos.Mutex.Lock()
 					delete(infos.IDs, whiteID)
 					infos.Conf.WhiteIDs = slices.DeleteFunc(infos.Conf.WhiteIDs, func(num int64) bool {
 						return num == whiteID
@@ -126,11 +148,14 @@ func handleBotCommand(m *telegram.NewMessage) error {
 						log.Printf("保存配置文件失败: %+v", err)
 					}
 					infos.Mutex.Unlock()
-					sendMS(m, fmt.Sprintf("移除白名单成功: %d", whiteID), nil, 60)
+					sendMS(m, fmt.Sprintf("按ID移除白名单成功: %d", whiteID), nil, 60)
 					return nil
 				}
+				infos.Mutex.Unlock()
 				sendMS(m, fmt.Sprintf("用户 %d 不在白名单中", whiteID), nil, 60)
+				return nil
 			}
+			infos.Mutex.Unlock()
 			return nil
 		case strings.HasPrefix(text, "/qr"):
 			if m.SenderID() != infos.Conf.UserID {
@@ -435,25 +460,41 @@ func handleBotCommand(m *telegram.NewMessage) error {
 				sendMS(m, "你没有使用此命令的权限", nil, 60)
 				return nil
 			}
-			channel := strings.TrimSpace(strings.TrimPrefix(text, "/del"))
-			if channel == "" {
-				sendMS(m, "请提供要移除的频道别名", nil, 60)
+			content := strings.TrimSpace(strings.TrimPrefix(text, "/del"))
+			if content == "" {
+				sendMS(m, "请提供要移除的频道索引或别名", nil, 60)
 				return nil
 			}
-			channel = strings.TrimPrefix(channel, "@")
-			if !slices.Contains(infos.Conf.Channels, channel) {
-				sendMS(m, fmt.Sprintf("频道 %s 不在搜索列表中", channel), nil, 60)
-				return nil
-			}
+
 			infos.Mutex.Lock()
-			infos.Conf.Channels = slices.DeleteFunc(infos.Conf.Channels, func(key string) bool {
-				return key == channel
-			})
-			if err := saveConf(infos.Conf, infos.FilesPath); err != nil {
-				log.Printf("保存配置文件失败: %+v", err)
+			index, err := strconv.Atoi(content)
+			if err == nil && index >= 0 && index < len(infos.Conf.Channels) {
+				// 按索引删除
+				removed := infos.Conf.Channels[index]
+				infos.Conf.Channels = append(infos.Conf.Channels[:index], infos.Conf.Channels[index+1:]...)
+				if err := saveConf(infos.Conf, infos.FilesPath); err != nil {
+					log.Printf("保存配置文件失败: %+v", err)
+				}
+				infos.Mutex.Unlock()
+				sendMS(m, fmt.Sprintf("按索引移除频道成功: %s", removed), nil, 60)
+				return nil
+			}
+
+			// 按内容删除
+			channel := strings.TrimPrefix(content, "@")
+			if slices.Contains(infos.Conf.Channels, channel) {
+				infos.Conf.Channels = slices.DeleteFunc(infos.Conf.Channels, func(key string) bool {
+					return key == channel
+				})
+				if err := saveConf(infos.Conf, infos.FilesPath); err != nil {
+					log.Printf("保存配置文件失败: %+v", err)
+				}
+				infos.Mutex.Unlock()
+				sendMS(m, fmt.Sprintf("按内容移除频道成功: %s", channel), nil, 60)
+				return nil
 			}
 			infos.Mutex.Unlock()
-			sendMS(m, fmt.Sprintf("移除频道成功: %s", channel), nil, 60)
+			sendMS(m, fmt.Sprintf("频道 %s 不在搜索列表中", channel), nil, 60)
 			return nil
 		case strings.HasPrefix(text, "/list"):
 			if !infos.isAdmin(m.SenderID()) {
@@ -475,11 +516,11 @@ func handleBotCommand(m *telegram.NewMessage) error {
 				}
 				values.WriteString(fmt.Sprintf("🔍 <b>搜索频道别名列表</b> (共 %d 个)\n", count))
 				values.WriteString("━━━━━━━━━━━━━━━\n")
-				for _, ch := range infos.Conf.Channels {
+				for num, ch := range infos.Conf.Channels {
 					if !strings.HasPrefix(ch, "@") {
 						ch = "@" + ch
 					}
-					values.WriteString(fmt.Sprintf("• %s\n", html.EscapeString(ch)))
+					values.WriteString(fmt.Sprintf("%d. %s\n", num, html.EscapeString(ch)))
 				}
 				sendMS(m, values.String(), nil, 60)
 			case "ids":
@@ -491,8 +532,8 @@ func handleBotCommand(m *telegram.NewMessage) error {
 				}
 				values.WriteString(fmt.Sprintf("🛡️ <b>白名单 ID 列表</b> (共 %d 个)\n", count))
 				values.WriteString("━━━━━━━━━━━━━━━\n")
-				for _, whiteID := range infos.Conf.WhiteIDs {
-					values.WriteString(fmt.Sprintf("• <code>%d</code>\n", whiteID))
+				for num, whiteID := range infos.Conf.WhiteIDs {
+					values.WriteString(fmt.Sprintf("%d. <code>%d</code>\n", num, whiteID))
 				}
 				sendMS(m, values.String(), nil, 60)
 			case "rules":
@@ -504,8 +545,8 @@ func handleBotCommand(m *telegram.NewMessage) error {
 				}
 				values.WriteString(fmt.Sprintf("🚫 <b>正则过滤规则列表</b> (共 %d 个)\n", count))
 				values.WriteString("━━━━━━━━━━━━━━━\n")
-				for i, rule := range infos.Conf.Rules {
-					values.WriteString(fmt.Sprintf("%d. <code>%s</code>\n", i, html.EscapeString(rule)))
+				for num, rule := range infos.Conf.Rules {
+					values.WriteString(fmt.Sprintf("%d. <code>%s</code>\n", num, html.EscapeString(rule)))
 				}
 				sendMS(m, values.String(), nil, 60)
 			default:
