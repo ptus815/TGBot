@@ -77,6 +77,10 @@ func handleParams(r *http.Request) (result Params, err error) {
 	values := strings.Split(params.Get("cname"), ",")
 	result.Channels = make([]string, 0, len(values))
 	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
 		result.Channels = append(result.Channels, "@"+strings.TrimLeft(value, "@"))
 	}
 
@@ -504,12 +508,12 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	channels := make([]string, len(infos.Conf.Channels))
+	channels := make([]string, 0, len(infos.Conf.Channels))
 	infos.Mutex.RLock() // 加锁保护读取过程
 	if len(params.Channels) == 0 {
-		copy(channels, infos.Conf.Channels)
+		channels = append(channels, infos.Conf.Channels...)
 	} else {
-		copy(channels, params.Channels)
+		channels = append(channels, params.Channels...)
 	}
 	infos.Mutex.RUnlock() // 读取完立即解锁
 

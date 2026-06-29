@@ -694,6 +694,7 @@ func (infos *Infos) list(channel string, page, limit int, filter int64) (items I
 			name = strings.TrimSpace(m.File.Name)
 		}
 		name = strings.ReplaceAll(name, "_", "")
+		name = strings.Join(strings.Fields(name), " ")
 
 		items.Item = append(items.Item, Item{
 			Name: name,
@@ -815,6 +816,7 @@ func (infos *Infos) search(channel, keywords string, page, limit int, offset int
 				name = strings.TrimSpace(m.File.Name)
 			}
 			name = strings.ReplaceAll(name, "_", "")
+			name = strings.Join(strings.Fields(name), " ")
 
 			items.Item = append(items.Item, Item{
 				Name: name,
