@@ -715,16 +715,16 @@ func (infos *Infos) list(channel string, page, limit int, filter int64, reverse 
 				sid := strconv.FormatInt(int64(media.ID), 10)
 				src += ":" + sid
 				if num == 0 {
-					infos.Mutex.Lock()
-					infos.LatestID = src
-					infos.Mutex.Unlock()
-				} else if num == maxNum {
 					infos.Mutex.RLock()
 					latestID := infos.LatestID
 					infos.Mutex.RUnlock()
 					if strings.Contains(latestID, sid) {
 						break
 					}
+				} else if num == maxNum {
+					infos.Mutex.Lock()
+					infos.LatestID = src
+					infos.Mutex.Unlock()
 				}
 
 				mids[media.ID] = true
