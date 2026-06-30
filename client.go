@@ -661,7 +661,7 @@ func (infos *Infos) list(channel string, page, limit int, filter int64) (items I
 	ms, err := infos.UserClient.GetMessages(ch, &telegram.SearchOption{
 		Limit:  int32(limit),
 		Offset: offset,
-		Filter: &telegram.InputMessagesFilterVideo{},
+		Filter: &telegram.InputMessagesFilterPhotoVideo{},
 	})
 
 	if err != nil {
@@ -697,6 +697,7 @@ func (infos *Infos) list(channel string, page, limit int, filter int64) (items I
 		name = strings.Join(strings.Fields(name), " ")
 
 		items.Item = append(items.Item, Item{
+			Ext: m.File.Ext,
 			Src:  src,
 			Name: name,
 			Size: size,
@@ -737,7 +738,7 @@ func (infos *Infos) search(channel, keywords string, page, limit int, offset int
 		Query:  keywords,
 		Limit:  int32(limit),
 		Offset: offset,
-		Filter: &telegram.InputMessagesFilterVideo{},
+		Filter: &telegram.InputMessagesFilterPhotoVideo{},
 	})
 
 	if err != nil {
@@ -784,7 +785,7 @@ func (infos *Infos) search(channel, keywords string, page, limit int, offset int
 			ms, err = infos.UserClient.GetMessages(ch, &telegram.SearchOption{
 				IDs:    chunk,
 				Limit:  100,
-				Filter: &telegram.InputMessagesFilterVideo{},
+				Filter: &telegram.InputMessagesFilterPhotoVideo{},
 			})
 			if err != nil {
 				continue
@@ -820,6 +821,7 @@ func (infos *Infos) search(channel, keywords string, page, limit int, offset int
 			name = strings.Join(strings.Fields(name), " ")
 
 			items.Item = append(items.Item, Item{
+				Ext: m.File.Ext,
 				Src:  src,
 				Name: name,
 				Size: size,

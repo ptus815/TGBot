@@ -62,6 +62,7 @@ type OffSets struct {
 }
 
 type Item struct {
+	Ext  string `json:"ext"`
 	Src  string `json:"src"`
 	Name string `json:"name"`
 	MID  int32  `json:"mid"`
