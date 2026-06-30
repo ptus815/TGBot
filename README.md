@@ -235,15 +235,30 @@ docker run -d --name tgfilebot -p 8080:8080 -v $(pwd)/files:/root/files tgfilebo
 | `page` | 否 | 页码，默认 `1` |
 | `limit` | 否 | 每页返回数量，默认 `20` |
 | `filter` | 否 | 过滤文件大小，如 `10M`，仅返回大于此大小的文件，默认 `128K` |
+| `reverse` | 否 | 是否反序，默认 `false` |
 | `key` / `hash` / `uid` | 否* | 鉴权参数（同上） |
 
 **响应示例**:
 ```json
 {
-  "more": true,
-  "channel": "频道名称",
-  "item": [
-    { "name": "example.mp4", "mid": 100, "cid": -1001234567890, "size": 104857600 }
+  "more": false,
+  "items": [
+    {
+      "more": false,
+      "id": "luolimeimei",
+      "channel": "🍔电视剧/综艺/电影/动漫/美剧",
+      "item": [
+        { 
+          "ext": ".mp4",
+          "src": "文字消息",
+          "name": "example.mp4", 
+          "mid": 100, 
+          "cid": -1001234567890, 
+          "gid": 14248657761577388,
+          "size": 104857600,
+        }
+      ]
+    }
   ]
 }
 ```
@@ -266,6 +281,7 @@ docker run -d --name tgfilebot -p 8080:8080 -v $(pwd)/files:/root/files tgfilebo
 | `limit` | 否 | 每页返回数量，默认 `20` |
 | `offset` | 否 | 结果偏移ID，用于翻页，默认 `0` |
 | `filter` | 否 | 过滤文件大小，如 `10M`，仅返回大于此大小的文件，默认 `128K` |
+| `reverse` | 否 | 是否反序，默认 `false` |
 | `key` / `hash` / `uid` | 否* | 鉴权参数（同上）|
 
 **响应示例**:
@@ -275,9 +291,18 @@ docker run -d --name tgfilebot -p 8080:8080 -v $(pwd)/files:/root/files tgfilebo
   "items": [
     {
       "more": false,
-      "channel": "channelname",
+      "id": "luolimeimei",
+      "channel": "🍔电视剧/综艺/电影/动漫/美剧",
       "item": [
-        { "name": "example.mp4", "mid": 100, "cid": -1001234567890, "size": 104857600 }
+        { 
+          "ext": ".mp4",
+          "src": "文字消息",
+          "name": "example.mp4", 
+          "mid": 100, 
+          "cid": -1001234567890, 
+          "gid": 14248657761577388,
+          "size": 104857600,
+        }
       ]
     }
   ]
