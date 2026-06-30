@@ -707,10 +707,6 @@ func (infos *Infos) list(channel string, page, limit int, filter int64, reverse 
 					continue
 				}
 
-				if value, ok := mids[media.ID]; ok && value {
-					continue
-				}
-
 				mids[media.ID] = true
 				item := handleItem(media)
 				items.Item = append(items.Item, item)
