@@ -637,7 +637,7 @@ func botConf(cate string) (conf telegram.ClientConfig) {
 }
 
 // list
-func (infos *Infos) list(channel string, page, limit int, filter int64, reverse bool) (items Items, err error) {
+func (infos *Infos) list(channel string, page, limit int, filter int64, reverse bool, ctx context.Context) (items Items, err error) {
 	if waitUntil := infos.WaitUntil.Load(); waitUntil > 0 {
 		if remaining := time.Until(time.Unix(waitUntil, 0)); remaining > 0 {
 			log.Printf("列表: 检测到FloodWait, 等待 %.2f 秒", remaining.Seconds())
@@ -659,9 +659,10 @@ func (infos *Infos) list(channel string, page, limit int, filter int64, reverse 
 	}
 
 	ms, err := infos.UserClient.GetMessages(ch, &telegram.SearchOption{
-		Limit:  int32(limit),
-		Offset: offset,
-		Filter: &telegram.InputMessagesFilterPhotoVideo{},
+		Limit:   int32(limit),
+		Offset:  offset,
+		Context: ctx,
+		Filter:  &telegram.InputMessagesFilterPhotoVideo{},
 	})
 
 	if err != nil {
@@ -752,7 +753,7 @@ func (infos *Infos) list(channel string, page, limit int, filter int64, reverse 
 }
 
 // search 在指定频道中搜索关键词并返回匹配的媒体文件列表
-func (infos *Infos) search(channel, keywords string, page, limit int, offset int32, filter int64, reverse bool) (items Items, err error) {
+func (infos *Infos) search(channel, keywords string, page, limit int, offset int32, filter int64, reverse bool, ctx context.Context) (items Items, err error) {
 	if waitUntil := infos.WaitUntil.Load(); waitUntil > 0 {
 		if remaining := time.Until(time.Unix(waitUntil, 0)); remaining > 0 {
 			log.Printf("搜索: 检测到FloodWait, 等待 %.2f 秒", remaining.Seconds())
@@ -774,10 +775,11 @@ func (infos *Infos) search(channel, keywords string, page, limit int, offset int
 	}
 
 	ms, err := infos.UserClient.GetMessages(ch, &telegram.SearchOption{
-		Query:  keywords,
-		Limit:  int32(limit),
-		Offset: offset,
-		Filter: &telegram.InputMessagesFilterPhotoVideo{},
+		Query:   keywords,
+		Limit:   int32(limit),
+		Offset:  offset,
+		Context: ctx,
+		Filter:  &telegram.InputMessagesFilterPhotoVideo{},
 	})
 
 	if err != nil {
@@ -826,9 +828,10 @@ func (infos *Infos) search(channel, keywords string, page, limit int, offset int
 		results = make([][]telegram.NewMessage, 0, (len(mids)/100)+1)
 		for chunk := range slices.Chunk(mids, 100) {
 			ms, err = infos.UserClient.GetMessages(ch, &telegram.SearchOption{
-				IDs:    chunk,
-				Limit:  100,
-				Filter: &telegram.InputMessagesFilterPhotoVideo{},
+				IDs:     chunk,
+				Limit:   100,
+				Context: ctx,
+				Filter:  &telegram.InputMessagesFilterPhotoVideo{},
 			})
 			if err != nil {
 				continue
