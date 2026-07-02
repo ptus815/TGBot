@@ -192,6 +192,16 @@ func isNumber(r rune) bool {
 	return r >= '0' && r <= '9'
 }
 
+// isAllNumber 判断字符串是否全为数字
+func isAllNumber(s string) bool {
+	for _, r := range s {
+		if !isNumber(r) {
+			return false
+		}
+	}
+	return true
+}
+
 // GetClientIP 从http.Request中提取客户端真实IP，支持代理场景和IPv6
 func GetClientIP(r *http.Request) string {
 	// 1. 优先处理X-Forwarded-For（代理场景）
@@ -238,6 +248,25 @@ func evictOldestCache(cache map[string]*MediaCache, maxCount int) {
 	if oldestKey != "" {
 		delete(cache, oldestKey)
 		log.Printf("媒体缓存已淘汰最旧条目: key=%s", oldestKey)
+	}
+}
+
+// evictOldestMsCache 当 cache map 超过 maxCount 时删除最旧的一条 (针对 MsCache)
+func evictOldestMsCache(cache map[string]*MsCache, maxCount int) {
+	if len(cache) <= maxCount {
+		return
+	}
+	var oldestKey string
+	var oldestTime time.Time
+	for k, v := range cache {
+		if oldestKey == "" || v.Time.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = v.Time
+		}
+	}
+	if oldestKey != "" {
+		delete(cache, oldestKey)
+		log.Printf("消息缓存已淘汰最旧条目: key=%s", oldestKey)
 	}
 }
 

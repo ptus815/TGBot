@@ -216,12 +216,21 @@ func handlePic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cate, src, err := infos.handleMs(params.CID, params.MID, params.Cate)
+	param := &telegram.SearchOption{
+		Context: r.Context(),
+		IDs:     []int32{params.MID},
+	}
+	cate, ms, err := infos.handleMs(params.CID, params.MID, params.Cate, param)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	if len(ms) == 0 {
+		http.Error(w, "未获取到消息", http.StatusBadRequest)
+		return
+	}
 
+	src := ms[0]
 	defer func() {
 		switch cate {
 		case "user":
@@ -256,6 +265,11 @@ func handlePic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	
+	if !src.IsMedia() {
+		http.Error(w, "消息不包含媒体", http.StatusBadRequest)
+		return
+	}
 	switch m := src.Media().(type) {
 	case *telegram.MessageMediaPhoto:
 		if p, ok := m.Photo.(*telegram.PhotoObj); ok {
@@ -404,12 +418,22 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cate, src, err := infos.handleMs(params.CID, params.MID, params.Cate)
+	param := &telegram.SearchOption{
+		Context: r.Context(),
+		IDs:     []int32{params.MID},
+	}
+	cate, ms, err := infos.handleMs(params.CID, params.MID, params.Cate, param)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 
+	if len(ms) == 0 {
+		http.Error(w, "未获取到消息", http.StatusBadRequest)
+		return
+	}
+
+	src := ms[0]
 	size := src.File.Size
 	fileName := src.File.Name
 	if size < infos.Conf.MaxSize*int64(infos.Conf.Workers) {
@@ -572,12 +596,21 @@ func handleSources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, src, err := infos.handleMs(params.CID, params.MID, "user")
+	param := &telegram.SearchOption{
+		Context: r.Context(),
+		IDs:     []int32{params.MID},
+	}
+	_, resources, err := infos.handleMs(params.CID, params.MID, params.Cate, param)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	if len(resources) == 0 {
+		http.Error(w, "未获取到消息", http.StatusBadRequest)
+		return
+	}
 
+	src := resources[0]
 	ms, err := src.GetMediaGroup()
 	if err != nil {
 		log.Printf("提取媒体组错误: %+v", err)
@@ -785,7 +818,7 @@ func handleMediaCate(fileName string) string {
 func hackLinks(res HackLink) (links []string) {
 	var errs error
 	for _, match := range res.Matches {
-		var cid any   // 用于 ResolvePeer 的标识项（可以是用户名或 chatID）
+		var cid int64   // 用于 ResolvePeer 的标识项（可以是用户名或 chatID）
 		var mid int32 // 消息 ID
 
 		// 1. 解析 Chat ID 或 Username
@@ -804,7 +837,12 @@ func hackLinks(res HackLink) (links []string) {
 			cid = value
 		} else {
 			// 否则匹配的是公开频道的 username
-			cid = match[3]
+			channelInfo, err := infos.handleChannel(match[3])
+			if err != nil {
+				log.Printf("获取频道 %s 信息失败: %+v", match[3], err)
+				continue
+			}
+			cid = channelInfo.CID
 		}
 
 		// 2. 解析消息偏移 ID
@@ -818,7 +856,8 @@ func hackLinks(res HackLink) (links []string) {
 		mid = int32(value)
 
 		// 3. 使用 UserBot 客户端尝试获取目标消息
-		ms, err := infos.UserClient.GetMessages(cid, &telegram.SearchOption{IDs: []int32{mid}})
+		param := &telegram.SearchOption{IDs: []int32{mid}}
+		_, ms, err := infos.handleMs(cid, mid, "user", param)
 		if err != nil || len(ms) == 0 {
 			log.Printf("获取消息失败: cid=%v, mid=%d, err=%v, count=%d", cid, mid, err, len(ms))
 			if len(ms) == 0 {

@@ -638,7 +638,7 @@ func botConf(cate string) (conf telegram.ClientConfig) {
 
 // list
 func (infos *Infos) list(channel string, page, limit int, filter int64, reverse bool, ctx context.Context) (items Items, err error) {
-	ch, err := infos.handleChannel(channel)
+	channelInfo, err := infos.handleChannel(channel)
 	if err != nil {
 		return items, err
 	}
@@ -650,14 +650,14 @@ func (infos *Infos) list(channel string, page, limit int, filter int64, reverse 
 	if page > 1 && offset == 0 {
 		return items, errors.New("未找到匹配消息")
 	}
-
-	ms, err := infos.UserClient.GetMessages(ch, &telegram.SearchOption{
+	param := &telegram.SearchOption{
 		Limit:   int32(limit),
 		Offset:  offset,
 		Context: ctx,
 		Filter:  &telegram.InputMessagesFilterPhotoVideo{},
-	})
+	}
 
+	_, ms, err := infos.handleMs(channelInfo.CID, offset, "user", param)
 	if err != nil {
 		return items, err
 	}
@@ -740,14 +740,14 @@ func (infos *Infos) list(channel string, page, limit int, filter int64, reverse 
 			items.Item = append(items.Item, item)
 		}
 	}
-	
+
 	items.ID = channel
 	return items, nil
 }
 
 // search 在指定频道中搜索关键词并返回匹配的媒体文件列表
 func (infos *Infos) search(channel, keywords string, page, limit int, offset int32, filter int64, reverse bool, ctx context.Context) (items Items, err error) {
-	ch, err := infos.handleChannel(channel)
+	channelInfo, err := infos.handleChannel(channel)
 	if err != nil {
 		return items, err
 	}
@@ -760,14 +760,15 @@ func (infos *Infos) search(channel, keywords string, page, limit int, offset int
 		}
 	}
 
-	ms, err := infos.UserClient.GetMessages(ch, &telegram.SearchOption{
+	param := &telegram.SearchOption{
 		Query:   keywords,
 		Limit:   int32(limit),
 		Offset:  offset,
 		Context: ctx,
 		Filter:  &telegram.InputMessagesFilterPhotoVideo{},
-	})
+	}
 
+	_, ms, err := infos.handleMs(channelInfo.CID, offset, "user", param)
 	if err != nil {
 		return items, err
 	}
@@ -806,7 +807,7 @@ func (infos *Infos) search(channel, keywords string, page, limit int, offset int
 }
 
 // selectClient 根据当前网络延迟选择最佳客户端
-func (infos *Infos) handleMs(cid int64, mid int32, cate string) (result string, src telegram.NewMessage, err error) {
+func (infos *Infos) handleMs(cid int64, mid int32, cate string, params *telegram.SearchOption) (result string, ms []telegram.NewMessage, err error) {
 	var wakeTime time.Time
 
 	// 1. 选择下载客户端，并提取对应的唤醒时间
@@ -824,7 +825,7 @@ func (infos *Infos) handleMs(cid int64, mid int32, cate string) (result string, 
 	if time.Since(wakeTime).Minutes() > 30 {
 		if err = infos.wakeTCP(cate); err != nil {
 			log.Printf("唤醒 TCP 连接失败: %+v", err)
-			return "", telegram.NewMessage{}, err
+			return "", []telegram.NewMessage{}, err
 		}
 	} else if infos.Conf.DeBUG {
 		diff := time.Since(wakeTime)
@@ -840,37 +841,84 @@ func (infos *Infos) handleMs(cid int64, mid int32, cate string) (result string, 
 	}
 
 	// 3. 获取消息
-	ms, err := infos.Client.GetMessages(cid, &telegram.SearchOption{IDs: []int32{mid}})
-	if err != nil || len(ms) == 0 {
-		err = fmt.Errorf("获取消息失败: cid=%d, mid=%d, err=%v, count=%d", cid, mid, err, len(ms))
-		log.Print(err.Error())
-		return result, telegram.NewMessage{}, err
+	key := fmt.Sprintf("%d:%d", cid, mid)
+	infos.Mutex.RLock()
+	value, ok := infos.MsCache[key]
+	infos.Mutex.RUnlock()
+	if ok {
+		if infos.Conf.DeBUG {
+			log.Printf("命中消息缓存: %s", key)
+		}
+		ms = value.Mes
+		value.Time = time.Now()
+	} else {
+		ms, err = infos.Client.GetMessages(cid, params)
+		if err != nil || len(ms) == 0 {
+			if len(ms) == 0 {
+				err = errors.New("未获取到消息")
+			}
+			err = fmt.Errorf("获取消息失败: cid=%v, mid=%d, err=%v, count=%d", cid, mid, err, len(ms))
+			log.Print(err.Error())
+			return result, []telegram.NewMessage{}, err
+		}
+		infos.Mutex.Lock()
+		evictOldestMsCache(infos.MsCache, infos.MaxMs)
+		infos.MsCache[key] = &MsCache{Mes: ms, Time: time.Now()}
+		infos.Mutex.Unlock()
 	}
 
-	src = ms[0]
-	if !src.IsMedia() {
-		err = fmt.Errorf("消息不包含媒体: cid=%d, mid=%d", cid, mid)
-		log.Print(err.Error())
-		return result, telegram.NewMessage{}, err
-	}
-
-	return result, src, nil
+	return result, ms, nil
 }
 
 // handleChannel 处理频道ID, 返回 InputPeer
-func (infos *Infos) handleChannel(channel string) (result telegram.InputPeer, err error) {
+func (infos *Infos) handleChannel(channel string) (result ChannelInfo, err error) {
 	infos.Mutex.RLock()
 	result, ok := infos.ChannelID[channel]
 	infos.Mutex.RUnlock()
 	if !ok {
-		result, err = infos.UserClient.ResolvePeer(channel)
-		if err != nil {
-			log.Printf("频道解析失败: %+v", err)
-			return result, err
+		src := strings.TrimPrefix(channel, "@")
+		if isAllNumber(src) {
+			cid, err := strconv.ParseInt(src, 10, 64)
+			if err != nil {
+				log.Printf("频道 %s 解析失败: %+v", channel, err)
+				return result, err
+			}
+			result.CID = cid
+			result.Hash = 0
+			result.Peer = &telegram.InputPeerUser{
+				UserID:     cid,
+				AccessHash: 0,
+			}
+		} else {
+			values, err := infos.UserClient.ResolvePeer(channel)
+			if err != nil {
+				log.Printf("频道解析失败: %+v", err)
+				return result, err
+			}
+			result.Peer = values
+			switch value := values.(type) {
+			case *telegram.InputPeerChannel:
+				// 匹配到频道
+				result.CID = value.ChannelID
+				result.Hash = value.AccessHash
+				result.Peer = value
+			case *telegram.InputPeerUser:
+				// 匹配到用户（假设有 UserID）
+				result.CID = value.UserID
+				result.Hash = value.AccessHash
+				result.Peer = value
+			case *telegram.InputPeerChat:
+				// 匹配到普通群
+				result.CID = value.ChatID
+				result.Hash = 0
+				result.Peer = value
+			default:
+				return result, errors.New("未知或不支持的 Peer 类型")
+			}
+			infos.Mutex.Lock()
+			infos.ChannelID[channel] = result
+			infos.Mutex.Unlock()
 		}
-		infos.Mutex.Lock()
-		infos.ChannelID[channel] = result
-		infos.Mutex.Unlock()
 	}
 	return result, nil
 }
@@ -883,13 +931,13 @@ func (infos *Infos) handleComments(mid int32, ms *[]telegram.NewMessage, reverse
 	src := (*ms)[0]
 	if src.Message.Replies != nil && src.Message.Replies.ChannelID != 0 {
 		discussionID := src.Message.Replies.ChannelID
-		ch, err := infos.handleChannel(src.Channel.Username)
+		channelInfo, err := infos.handleChannel(src.Channel.Username)
 		if err != nil {
 			log.Printf("获取频道失败: %+v", err)
 			return err
 		}
 		results, err := infos.UserClient.MessagesGetReplies(&telegram.MessagesGetRepliesParams{
-			Peer:  ch,
+			Peer:  channelInfo.Peer,
 			Limit: 100,
 			MsgID: mid,
 		})
