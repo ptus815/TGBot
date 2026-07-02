@@ -830,22 +830,31 @@ func handleComments(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "获取评论失败", http.StatusInternalServerError)
 		return
 	}
-	items := Items{
-		HasMore: false,
-		Item:    make([]Item, 0, len(ms)),
-	}
 
+	var result struct {
+		HasMore bool    `json:"more"`
+		Items   []Items `json:"items"`
+	}
+	result.Items = make([]Items, 0, 1)
+	items := Items{
+		HasMore: params.Limit != len(ms),
+	}
+	result.HasMore = items.HasMore
 	for _, m := range ms {
+		if IsVideoFile(m.File.Ext) && m.File.Size < params.Filter {
+			continue
+		}
+
 		if items.Channel == "" {
 			items.Channel = m.Channel.Title
 			items.ID = m.Channel.Username
 		}
-		if IsVideoFile(m.File.Ext) && m.File.Size < params.Filter {
-			continue
-		}
-		items.Item = append(items.Item, handleItem(m))
+		item := handleItem(m)
+		items.Item = append(items.Item, item)
 	}
-	content, err := json.Marshal(items)
+	result.Items = append(result.Items, items)
+
+	content, err := json.Marshal(result)
 	if err != nil {
 		log.Printf("JSON序列化失败: %+v", err)
 		return
