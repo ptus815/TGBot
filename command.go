@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"html"
 	"log"
@@ -738,7 +737,7 @@ func handleMess(m *telegram.NewMessage) error {
 	}
 
 	// 匹配格式如：t.me/c/12345/678 或 t.me/username/678
-	re := regexp.MustCompile(`t\.me\/(c\/(\d+)|([a-zA-Z0-9_]+))\/(\d+)(?:.*comment=(\d+))?(?:.*o=([-+]?\d+))?`)
+	re := regexp.MustCompile(`t\.me\/(c\/(\d+)|([a-zA-Z0-9_]+))\/(\d+)(?:.*comment=(\d+))?`)
 	matches := re.FindAllStringSubmatch(src, -1)
 
 	if len(matches) == 0 {
@@ -748,7 +747,7 @@ func handleMess(m *telegram.NewMessage) error {
 		M:       m,
 		Matches: matches,
 	}
-	links := hackLink(res)
+	links := hackLinks(res)
 	if len(links) == 0 {
 		return nil
 	}
@@ -758,147 +757,6 @@ func handleMess(m *telegram.NewMessage) error {
 	return nil
 }
 
-// hackLink 是链接解析的核心逻辑，负责将 t.me 链接映射到具体的媒体消息并生成本程序的流地址
-func hackLink(res HackLink) (links []string) {
-	var errs error
-	for _, match := range res.Matches {
-		var cid any   // 用于 ResolvePeer 的标识项（可以是用户名或 chatID）
-		var mid int32 // 消息 ID
-
-		if len(match) > 6 && match[6] != "" {
-			if offset, err := strconv.ParseInt(match[6], 10, 32); err == nil {
-				res.Offset = int32(offset)
-			}
-		} else {
-			res.Offset = 0
-		}
-
-		// 1. 解析 Chat ID 或 Username
-		if match[2] != "" {
-			// 如果是 c/(\d+)，代表私有频道链接，需要给 ID 补充前缀 -100
-			value, err := strconv.ParseInt("-100"+match[2], 10, 64)
-			if err != nil {
-				log.Printf("解析频道ID失败: %+v", err)
-				if res.M != nil {
-					if _, err := res.M.Reply("解析频道ID失败"); err != nil {
-						log.Printf("发送消息失败: %+v", err)
-					}
-				}
-				continue
-			}
-			cid = value
-		} else {
-			// 否则匹配的是公开频道的 username
-			cid = match[3]
-		}
-
-		// 2. 解析消息偏移 ID
-		value, err := strconv.ParseInt(match[4], 10, 32)
-		if err != nil {
-			errs = errors.Join(errs, err)
-			log.Printf("解析消息ID失败: %+v", err)
-			continue
-		}
-
-		mid = int32(value)
-
-		// 如果偏移量大于0，则从目标消息开始向前推偏移量
-		start, end := int32(0), int32(0)
-		if res.Offset >= 0 {
-			end = res.Offset
-		} else {
-			start = res.Offset
-		}
-		mids := make([]int32, 0, end-start+1)
-		for num := start; num <= end; num++ {
-			mids = append(mids, mid+int32(num))
-		}
-
-		// 3. 使用 UserBot 客户端尝试获取目标消息
-		ms, err := infos.UserClient.GetMessages(cid, &telegram.SearchOption{IDs: mids})
-		if err != nil || len(ms) == 0 {
-			log.Printf("获取消息失败: cid=%v, mid=%d, err=%v, count=%d", cid, mid, err, len(ms))
-			if len(ms) == 0 {
-				err = errors.New("未获取到消息")
-			}
-			errs = errors.Join(errs, err)
-			continue
-		}
-
-		// 4. 处理链接中的评论 (comment) 逻辑
-		if match[5] != "" {
-			commentID, err := strconv.ParseInt(match[5], 10, 32)
-			if err != nil {
-				continue
-			}
-			commentIDs := make([]int64, 0, end-start+1)
-			for num := start; num <= end; num++ {
-				commentIDs = append(commentIDs, commentID+int64(num))
-			}
-
-			src := ms[0] // 获取第一条目标消息
-			if src.Message.Replies != nil && src.Message.Replies.ChannelID != 0 {
-				discussionID := src.Message.Replies.ChannelID
-				commentMs, err := infos.UserClient.GetMessages(discussionID, &telegram.SearchOption{IDs: commentIDs})
-				if err != nil {
-					log.Printf("获取评论消息失败: cid=%v, mid=%d, err=%v, count=%d", cid, mid, err, len(commentMs))
-					errs = errors.Join(errs, err)
-					continue
-				}
-				ms = make([]telegram.NewMessage, 0, len(commentMs))
-				for count, m := range commentMs {
-					if count < len(commentIDs) {
-						m.ID = int32(commentIDs[count])
-					} else {
-						break
-					}
-					m.Chat.ID = discussionID
-					ms = append(ms, m)
-				}
-			}
-		}
-
-		for _, src := range ms {
-			// 5. 校验消息是否包含可流式传输的媒体
-			if !src.IsMedia() || (src.Photo() == nil && src.Document() == nil && src.Video() == nil) {
-				log.Printf("消息不包含媒体: cid=%v, mid=%d", cid, mid)
-				continue
-			}
-
-			// 6. 为该媒体构造本程序的下载直链 (流地址)
-			link := fmt.Sprintf("%s/stream?cid=%v&mid=%d&cate=user", strings.TrimSuffix(infos.Conf.Site, "/"), src.ChatID(), src.ID)
-
-			// 7. 处理 URL 的权限参数附加
-			if infos.Conf.Password != "" {
-				if res.M != nil {
-					link += fmt.Sprintf("&hash=%s&uid=%d", infos.calculateHash(res.M.SenderID()), res.M.SenderID())
-				} else {
-					switch {
-					case res.Hash != "" && res.UID != 0:
-						link += fmt.Sprintf("&hash=%s&uid=%d", res.Hash, res.UID)
-					case res.Pass != "":
-						link += fmt.Sprintf("&key=%s", res.Pass)
-					default:
-						log.Print("未提供密码或哈希")
-					}
-				}
-			}
-			links = append(links, link)
-		}
-	}
-	
-	if len(links) == 0 {
-		errs = errors.Join(errs, errors.New("未获取到有效链接"))
-
-	}
-
-	if errs != nil && res.M != nil {
-		if _, err := res.M.Reply(errs.Error()); err != nil {
-			log.Printf("发送消息失败: %+v", err)
-		}
-	}
-	return links
-}
 
 // sendLink 发送美化后的下载链接消息
 func sendLink(m *telegram.NewMessage, links []string) error {

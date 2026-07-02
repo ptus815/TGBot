@@ -638,13 +638,6 @@ func botConf(cate string) (conf telegram.ClientConfig) {
 
 // list
 func (infos *Infos) list(channel string, page, limit int, filter int64, reverse bool, ctx context.Context) (items Items, err error) {
-	if waitUntil := infos.WaitUntil.Load(); waitUntil > 0 {
-		if remaining := time.Until(time.Unix(waitUntil, 0)); remaining > 0 {
-			log.Printf("列表: 检测到FloodWait, 等待 %.2f 秒", remaining.Seconds())
-			time.Sleep(remaining)
-		}
-	}
-
 	ch, err := infos.handleChannel(channel)
 	if err != nil {
 		return items, err
@@ -709,7 +702,7 @@ func (infos *Infos) list(channel string, page, limit int, filter int64, reverse 
 			items.Channel = strings.TrimSpace(m.Channel.Title)
 		}
 
-		if num == 0 || num == maxNum {
+		if (num == 0 || num == maxNum) && m.Message.GroupedID != 0 {
 			medias, err := m.GetMediaGroup()
 			if err != nil {
 				log.Printf("提取媒体组错误: %+v", err)
@@ -754,13 +747,6 @@ func (infos *Infos) list(channel string, page, limit int, filter int64, reverse 
 
 // search 在指定频道中搜索关键词并返回匹配的媒体文件列表
 func (infos *Infos) search(channel, keywords string, page, limit int, offset int32, filter int64, reverse bool, ctx context.Context) (items Items, err error) {
-	if waitUntil := infos.WaitUntil.Load(); waitUntil > 0 {
-		if remaining := time.Until(time.Unix(waitUntil, 0)); remaining > 0 {
-			log.Printf("搜索: 检测到FloodWait, 等待 %.2f 秒", remaining.Seconds())
-			time.Sleep(remaining)
-		}
-	}
-
 	ch, err := infos.handleChannel(channel)
 	if err != nil {
 		return items, err
@@ -799,70 +785,21 @@ func (infos *Infos) search(channel, keywords string, page, limit int, offset int
 	if reverse {
 		slices.Reverse(ms)
 	}
-	maxCount := 3
-	rids := make(map[int64]bool)
-	mids := make([]int32, 0, lenMs*maxCount)
-	seen := make(map[int32]bool)
+
 	for _, m := range ms {
 		if m.File == nil {
 			continue
 		}
-		if m.Message.GroupedID != 0 {
-			for num := 0; num < maxCount; num++ {
-				mid := m.ID + int32(num)
-				if value, ok := seen[mid]; ok && value {
-					continue
-				}
-				seen[mid] = true
-				mids = append(mids, mid)
-				rids[m.Message.GroupedID] = true
-			}
-		} else {
-			mids = append(mids, m.ID)
+
+		if IsVideoFile(m.File.Ext) && m.File.Size < filter {
+			continue
 		}
-	}
 
-	results := [][]telegram.NewMessage{ms}
-
-	if len(rids) > 0 {
-		results = make([][]telegram.NewMessage, 0, (len(mids)/100)+1)
-		for chunk := range slices.Chunk(mids, 100) {
-			ms, err = infos.UserClient.GetMessages(ch, &telegram.SearchOption{
-				IDs:     chunk,
-				Limit:   100,
-				Context: ctx,
-				Filter:  &telegram.InputMessagesFilterPhotoVideo{},
-			})
-			if err != nil {
-				continue
-			}
-			results = append(results, ms)
+		if items.Channel == "" {
+			items.Channel = strings.TrimSpace(m.Channel.Title)
 		}
+		items.Item = append(items.Item, handleItem(m))
 	}
-
-	for _, ms := range results {
-		for _, m := range ms {
-			if m.File == nil {
-				continue
-			}
-			if len(rids) > 0 {
-				if value, ok := rids[m.Message.GroupedID]; !ok || !value {
-					continue
-				}
-			}
-
-			if IsVideoFile(m.File.Ext) && m.File.Size < filter {
-				continue
-			}
-
-			if items.Channel == "" {
-				items.Channel = strings.TrimSpace(m.Channel.Title)
-			}
-
-			items.Item = append(items.Item, handleItem(m))
-		}
-	}
-
 	items.ID = channel
 	return items, nil
 }
@@ -886,14 +823,13 @@ func (infos *Infos) handleMs(cid int64, mid int32, cate string) (result string, 
 	if time.Since(wakeTime).Minutes() > 30 {
 		if err = infos.wakeTCP(cate); err != nil {
 			log.Printf("唤醒 TCP 连接失败: %+v", err)
-			return "", telegram.NewMessage{}, err // 📌 隐患 1 修复：建议失败时直接中断返回
+			return "", telegram.NewMessage{}, err
 		}
 	} else if infos.Conf.DeBUG {
 		diff := time.Since(wakeTime)
 		minutes := int(diff.Minutes())
 		seconds := int(diff.Seconds()) % 60
 		if minutes != 0 {
-			// 📌 隐患 2 修复：将原 src 改为 timeStr，避免变量遮蔽
 			timeStr := fmt.Sprintf("%02d分%02d秒", minutes, seconds)
 			timeStr = strings.TrimPrefix(timeStr, "0")
 			log.Printf("TCP 链路正常, %s前唤醒", timeStr)
@@ -938,6 +874,80 @@ func (infos *Infos) handleChannel(channel string) (result telegram.InputPeer, er
 	return result, nil
 }
 
+// handleComments 处理评论消息，返回评论消息列表
+func (infos *Infos) handleComments(mid int32, ms *[]telegram.NewMessage, reverse bool) error {
+	if len(*ms) == 0 {
+		return errors.New("未找到消息")
+	}
+	src := (*ms)[0]
+	if src.Message.Replies != nil && src.Message.Replies.ChannelID != 0 {
+		discussionID := src.Message.Replies.ChannelID
+		ch, err := infos.handleChannel(src.Channel.Username)
+		if err != nil {
+			log.Printf("获取频道失败: %+v", err)
+			return err
+		}
+		results, err := infos.UserClient.MessagesGetReplies(&telegram.MessagesGetRepliesParams{
+			Peer:  ch,
+			Limit: 100,
+			MsgID: mid,
+		})
+
+		if err != nil {
+			log.Printf("获取评论消息失败: cid=%d, mid=%d, err=%v", src.Channel.ID, mid, err)
+			return err
+		}
+
+		// 从 MessagesGetReplies 的结果中提取原始消息列表
+		var newMs []telegram.Message
+		switch v := results.(type) {
+		case *telegram.MessagesMessagesSlice:
+			newMs = v.Messages
+		case *telegram.MessagesChannelMessages:
+			newMs = v.Messages
+		case *telegram.MessagesMessagesObj:
+			newMs = v.Messages
+		default:
+			log.Printf("收到未知的底层具体类型: %T, %v", v, v)
+		}
+
+		// PackMessages 将 []telegram.Message 转为 []*telegram.NewMessage，
+		// 然后按 commentIDSet 过滤，设置 Chat.ID 后追加到 ms
+		if reverse {
+			slices.Reverse(newMs)
+		}
+		for _, nm := range telegram.PackMessages(infos.UserClient, newMs) {
+			if !nm.IsMedia() {
+				continue
+			}
+			nm.Chat.ID = discussionID
+			*ms = append(*ms, *nm)
+		}
+	}
+	return nil
+}
+
+// handleLinks 处理消息媒体, 返回直链
+func handleLinks(res HackLink, src telegram.NewMessage) (link string) {
+	link = fmt.Sprintf("%s/stream?cid=%v&mid=%d&cate=user", strings.TrimSuffix(infos.Conf.Site, "/"), src.ChatID(), src.ID)
+
+	if infos.Conf.Password != "" {
+		if res.M != nil {
+			link += fmt.Sprintf("&hash=%s&uid=%d", infos.calculateHash(res.M.SenderID()), res.M.SenderID())
+		} else {
+			switch {
+			case res.Hash != "" && res.UID != 0:
+				link += fmt.Sprintf("&hash=%s&uid=%d", res.Hash, res.UID)
+			case res.Pass != "":
+				link += fmt.Sprintf("&key=%s", res.Pass)
+			default:
+				log.Print("未提供密码或哈希")
+			}
+		}
+	}
+	return link
+}
+
 // handleItem 处理消息媒体, 返回 Item
 func handleItem(m telegram.NewMessage) (item Item) {
 	src := strings.TrimSpace(m.Text())
@@ -954,6 +964,7 @@ func handleItem(m telegram.NewMessage) (item Item) {
 	item.CID = m.Channel.ID
 	item.MID = m.ID
 	if m.Message != nil {
+		item.Date = m.Message.Date
 		item.GID = m.Message.GroupedID
 	}
 	return item

@@ -23,13 +23,17 @@ import (
 
 type Params struct {
 	CID      int64
+	UID      int64
 	Filter   int64
 	Offset   int32
 	MID      int32
 	Page     int
 	Limit    int
 	Reverse  bool
+	Pass     string
 	Cate     string
+	Hash     string
+	Link     string
 	Keywords string
 	Channels []string
 }
@@ -38,7 +42,6 @@ type Params struct {
 type HackLink struct {
 	M       *telegram.NewMessage // 原始消息对象
 	UID     int64                // 发起请求的用户 ID
-	Offset  int32                // 偏移量
 	Pass    string               // 可选密码
 	Hash    string               // 验证哈希
 	Matches [][]string           // 正则匹配到的链接信息
@@ -62,16 +65,6 @@ type OffSets struct {
 	OffSets map[string]OffSet // 偏移量映射
 }
 
-type Item struct {
-	Ext  string `json:"ext"`
-	Src  string `json:"src"`
-	Name string `json:"name"`
-	MID  int32  `json:"mid"`
-	CID  int64  `json:"cid"`
-	GID  int64  `json:"gid"`
-	Size int64  `json:"size"`
-}
-
 type MediaContent struct {
 	Start   int64
 	End     int64
@@ -82,6 +75,18 @@ type MediaContent struct {
 type MediaCache struct {
 	Contents []MediaContent
 	Time     time.Time
+}
+
+
+type Item struct {
+	Ext  string `json:"ext"`
+	Src  string `json:"src"`
+	Name string `json:"name"`
+	Date int32  `json:"date"`
+	MID  int32  `json:"mid"`
+	CID  int64  `json:"cid"`
+	GID  int64  `json:"gid"`
+	Size int64  `json:"size"`
 }
 
 type Items struct {

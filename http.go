@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,6 +55,9 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 		// 处理搜索
 		handleSearch(w, r)
 		return
+	case path == "/sources":
+		handleSources(w, r)
+		return
 	case strings.HasPrefix(path, "/stream"):
 		// 处理文件分片流式下载（串流播放）核心接口
 		handleStream(w, r)
@@ -71,7 +76,10 @@ func handleParams(r *http.Request) (result Params, err error) {
 		return result, err
 	}
 
+	result.Pass = params.Get("key")
+	result.Hash = params.Get("hash")
 	result.Cate = params.Get("cate")
+	result.Link = params.Get("link")
 	result.Keywords = params.Get("keywords")
 
 	values := strings.Split(params.Get("cname"), ",")
@@ -111,6 +119,12 @@ func handleParams(r *http.Request) (result Params, err error) {
 		cid = 0
 	}
 	result.CID = cid
+
+	uid, err := strconv.ParseInt(params.Get("uid"), 10, 64)
+	if err != nil {
+		uid = 0
+	}
+	result.UID = uid
 
 	mid, err := strconv.ParseInt(params.Get("mid"), 10, 32)
 	if err != nil || mid == 0 {
@@ -322,7 +336,47 @@ func handleList(w http.ResponseWriter, r *http.Request) {
 		log.Printf("写入长度 %d 的响应体失败: %+v", n, err)
 		return
 	}
+}
 
+// handleLink 处理链接提取请求, 将 Telegram 消息链接转换为直链下载地址并执行重定向
+func handleLink(w http.ResponseWriter, r *http.Request) {
+	res := HackLink{}
+	params, err := handleParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	src := params.Link
+	if src == "" || !strings.HasPrefix(src, "http") {
+		http.Error(w, "无效的链接", http.StatusBadRequest)
+		return
+	}
+
+	clientIP := GetClientIP(r)
+	log.Printf("正在处理来自 %s 的请求, 开始提取直链, link=%s", clientIP, src)
+
+	// 3. 正则匹配并解析链接
+	re := regexp.MustCompile(`t\.me\/(c\/(\d+)|([a-zA-Z0-9_]+))\/(\d+)(?:.*comment=(\d+))?`)
+	res.Matches = re.FindAllStringSubmatch(src, -1)
+	res.UID = params.UID
+	res.Pass = params.Pass
+	res.Hash = params.Hash
+
+	links := hackLinks(res)
+	if len(links) == 0 {
+		http.Error(w, "未找到可下载的媒体", http.StatusNotFound)
+		return
+	}
+
+	result, err := json.Marshal(links)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(result)
 }
 
 // handleStream 处理来自 HTTP 的文件流式读取请求
@@ -503,6 +557,69 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleSources 获取相册中的所有文件
+func handleSources(w http.ResponseWriter, r *http.Request) {
+	// 0. 检验 HTTP 请求类型, 过滤非法请求
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, fmt.Sprintf("不支持的请求方法: %s", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+
+	params, err := handleParams(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	_, src, err := infos.handleMs(params.CID, params.MID, "user")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	ms, err := src.GetMediaGroup()
+	if err != nil {
+		log.Printf("提取媒体组错误: %+v", err)
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if len(ms) == 0 {
+		http.Error(w, "未获取到媒体组", http.StatusNotFound)
+		return
+	}
+
+	if params.Reverse {
+		slices.Reverse(ms)
+	}
+
+	items := Items{
+		Channel: strings.TrimSpace(src.Channel.Title),
+		ID:      src.Channel.Username,
+		HasMore: false,
+		Item:    make([]Item, 0, len(ms)),
+	}
+	for _, m := range ms {
+		if IsVideoFile(m.File.Ext) && m.File.Size < params.Filter {
+			continue
+		}
+		item := handleItem(m)
+		items.Item = append(items.Item, item)
+	}
+
+	content, err := json.Marshal(items)
+	if err != nil {
+		log.Printf("序列化相册媒体组失败: %+v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	n, err := w.Write(content)
+	if err != nil {
+		log.Printf("写入长度 %d 的响应体失败: %+v", n, err)
+		return
+	}
+}
+
 // handleSearch 处理搜索请求, 并发搜索多个频道
 func handleSearch(w http.ResponseWriter, r *http.Request) {
 	if infos.UserClient == nil {
@@ -623,56 +740,6 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleLink 处理链接提取请求, 将 Telegram 消息链接转换为直链下载地址并执行重定向
-func handleLink(w http.ResponseWriter, r *http.Request) {
-	res := HackLink{}
-	params := r.URL.Query()
-
-	// 1. 验证访问权限 (密码或哈希)
-	if err := checkPass(params); err != nil {
-		http.Error(w, err.Error(), http.StatusUnauthorized)
-		return
-	}
-
-	// 2. 获取目标 Telegram 链接
-	src := params.Get("link")
-	if src == "" || !strings.HasPrefix(src, "http") {
-		http.Error(w, "无效的链接", http.StatusBadRequest)
-		return
-	}
-
-	clientIP := GetClientIP(r)
-	log.Printf("正在处理来自 %s 的请求, 开始提取直链, link=%s", clientIP, src)
-
-	// 3. 正则匹配并解析链接
-	re := regexp.MustCompile(`t\.me\/(c\/(\d+)|([a-zA-Z0-9_]+))\/(\d+)(?:.*comment=(\d+))?(?:.*o=([-+]?\d+))?`)
-	res.Matches = re.FindAllStringSubmatch(src, -1)
-	value := params.Get("uid")
-
-	uid, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		log.Printf("转换UID错误: %+v", err)
-	}
-	res.UID = uid
-	res.Pass = params.Get("key")
-	res.Hash = params.Get("hash")
-
-	links := hackLink(res)
-	if len(links) == 0 {
-		http.Error(w, "未找到可下载的媒体", http.StatusNotFound)
-		return
-	}
-
-	result, err := json.Marshal(links)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(result)
-}
-
 // handleMediaCate 根据文件扩展名返回对应的 MIME 类型
 func handleMediaCate(fileName string) string {
 	lowerFileName := strings.ToLower(fileName)
@@ -700,4 +767,92 @@ func handleMediaCate(fileName string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+// hackLinks 是链接解析的核心逻辑，负责将 t.me 链接映射到具体的媒体消息并生成本程序的流地址
+func hackLinks(res HackLink) (links []string) {
+	var errs error
+	for _, match := range res.Matches {
+		var cid any   // 用于 ResolvePeer 的标识项（可以是用户名或 chatID）
+		var mid int32 // 消息 ID
+
+		// 1. 解析 Chat ID 或 Username
+		if match[2] != "" {
+			// 如果是 c/(\d+)，代表私有频道链接，需要给 ID 补充前缀 -100
+			value, err := strconv.ParseInt("-100"+match[2], 10, 64)
+			if err != nil {
+				log.Printf("解析频道ID失败: %+v", err)
+				if res.M != nil {
+					if _, err := res.M.Reply("解析频道ID失败"); err != nil {
+						log.Printf("发送消息失败: %+v", err)
+					}
+				}
+				continue
+			}
+			cid = value
+		} else {
+			// 否则匹配的是公开频道的 username
+			cid = match[3]
+		}
+
+		// 2. 解析消息偏移 ID
+		value, err := strconv.ParseInt(match[4], 10, 32)
+		if err != nil {
+			errs = errors.Join(errs, err)
+			log.Printf("解析消息ID失败: %+v", err)
+			continue
+		}
+
+		mid = int32(value)
+
+		// 3. 使用 UserBot 客户端尝试获取目标消息
+		ms, err := infos.UserClient.GetMessages(cid, &telegram.SearchOption{IDs: []int32{mid}})
+		if err != nil || len(ms) == 0 {
+			log.Printf("获取消息失败: cid=%v, mid=%d, err=%v, count=%d", cid, mid, err, len(ms))
+			if len(ms) == 0 {
+				err = errors.New("未获取到消息")
+			}
+			errs = errors.Join(errs, err)
+			continue
+		}
+
+		// 4. 处理链接中的评论 (comment) 逻辑
+		if match[5] != "" {
+			if err := infos.handleComments(mid, &ms, true); err != nil {
+				log.Printf("获取评论失败: cid=%v, mid=%d, err=%+v", cid, mid, err)
+				errs = errors.Join(errs, err)
+				continue
+			}
+		}
+
+		for _, src := range ms {
+			if src.Message.GroupedID != 0 {
+				medias, err := src.GetMediaGroup()
+				if err != nil {
+					log.Printf("提取媒体组错误: %+v", err)
+				}
+				slices.Reverse(medias)
+				for _, media := range medias {
+					links = append(links, handleLinks(res, media))
+				}
+			} else {
+				if !src.IsMedia() {
+					log.Printf("消息不包含媒体: cid=%v, mid=%d", cid, mid)
+					continue
+				}
+				links = append(links, handleLinks(res, src))
+			}
+		}
+	}
+
+	if len(links) == 0 {
+		errs = errors.Join(errs, errors.New("未获取到有效链接"))
+	}
+
+	if errs != nil && res.M != nil {
+		if _, err := res.M.Reply(errs.Error()); err != nil {
+			log.Printf("发送消息失败: %+v", err)
+		}
+	}
+	return links
 }

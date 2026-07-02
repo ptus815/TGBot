@@ -210,13 +210,10 @@ docker run -d --name tgfilebot -p 8080:8080 -v $(pwd)/files:/root/files tgfilebo
 | `key` | 否* | 明文访问密码(与hash二选一) |
 | `hash` | 否* | 哈希鉴权(与key二选一) |
 | `uid` | 否* | 使用 `hash` 时对应的用户 ID |
-| `o` | 否* | 用于指定解析的偏移量 |
 
 **支持的链接格式**:
 - 私有频道: `https://t.me/c/1234567890/100`
 - 公开频道: `https://t.me/channelname/100`
-- 带评论区链接: `https://t.me/c/1234567890/100?comment=200`
-- 带偏移量链接: `https://t.me/c/1234567890/100?o=5` (或使用 `&o=5` 参数，用于指定解析的偏移量)
 
 ---
 
@@ -282,6 +279,7 @@ docker run -d --name tgfilebot -p 8080:8080 -v $(pwd)/files:/root/files tgfilebo
 | `offset` | 否 | 结果偏移ID，用于翻页，默认 `0` |
 | `filter` | 否 | 过滤文件大小，如 `10M`，仅返回大于此大小的文件，默认 `128K` |
 | `reverse` | 否 | 是否反序，默认 `false` |
+| `uname` | 否 | 频道别名/用户名（例如 `@channelname` 或 `channelname`），与 `keywords` 同时传入时，将覆盖 `config.json` 中的 `searchChannels` 配置，仅搜索该频道。支持多频道并发搜索，频道名间用英文字符`,`隔开。 |
 | `key` / `hash` / `uid` | 否* | 鉴权参数（同上）|
 
 **响应示例**:
@@ -309,7 +307,48 @@ docker run -d --name tgfilebot -p 8080:8080 -v $(pwd)/files:/root/files tgfilebo
 }
 ```
 
-> 搜索范围为 `config.json` 中 `/add` 命令添加的频道别名列表。接口超时时间为 **30 秒**。
+> 搜索范围为 `config.json` 中 `/add` 命令添加的频道别名列表或通过API传入的username。接口超时时间为 **30 秒**。
+
+---
+
+### `GET /sources` — 获取消息媒体组的所有多媒体文件
+
+**URL 格式**:
+```
+/sources?cid={频道ID}&mid={消息ID}&filter={过滤大小}&key={key}
+```
+
+| 参数 | 必填 | 说明 |
+|:---|:---:|:---|
+| `cid` | 是 | 频道ID |
+| `mid` | 是 | 消息ID |
+| `filter` | 否 | 过滤文件大小，如 `10M`，仅返回大于此大小的文件，默认 `128K` |
+| `key` / `hash` / `uid` | 否* | 鉴权参数（同上）|
+
+**响应示例**:
+```json
+{
+  "more": false,
+  "items": [
+    {
+      "more": false,
+      "id": "luolimeimei",
+      "channel": "🍔电视剧/综艺/电影/动漫/美剧",
+      "item": [
+        { 
+          "ext": ".mp4",
+          "src": "文字消息",
+          "name": "example.mp4", 
+          "mid": 100, 
+          "cid": -1001234567890, 
+          "gid": 14248657761577388,
+          "size": 104857600,
+        }
+      ]
+    }
+  ]
+}
+```
 
 ---
 
