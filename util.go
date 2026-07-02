@@ -195,7 +195,7 @@ func isNumber(r rune) bool {
 // isAllNumber 判断字符串是否全为数字
 func isAllNumber(s string) bool {
 	for _, r := range s {
-		if !isNumber(r) {
+		if !isNumber(r) && r != '-' {
 			return false
 		}
 	}
