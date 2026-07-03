@@ -860,7 +860,7 @@ func (infos *Infos) handleMs(params HandleMs) (result string, ms []telegram.NewM
 	}
 
 	if params.OffsetID > 0 {
-		kname += "-" + strconv.FormatInt(int64(params.OffsetID-1), 10)
+		kname += ":" + strconv.FormatInt(int64(params.OffsetID-1), 10)
 	}
 
 	infos.Mutex.RLock()
