@@ -703,9 +703,6 @@ func (infos *Infos) list(channel string, page, limit int, filter int64, reverse 
 			if err != nil {
 				log.Printf("提取媒体组错误: %+v", err)
 			}
-			if !reverse {
-				slices.Reverse(medias)
-			}
 
 			src := channel
 			count := 0
@@ -1010,15 +1007,15 @@ func (infos *Infos) handleComments(mid, offset int32, ms *[]telegram.NewMessage,
 
 		// PackMessages 将 []telegram.Message 转为 []*telegram.NewMessage，
 		// 然后按 commentIDSet 过滤，设置 Chat.ID 后追加到 ms
-		if reverse {
-			slices.Reverse(newMs)
-		}
 		for _, nm := range telegram.PackMessages(infos.UserClient, newMs) {
 			if !nm.IsMedia() {
 				continue
 			}
 			nm.Chat.ID = discussionID
 			*ms = append(*ms, *nm)
+		}
+		if reverse {
+			slices.Reverse(*ms)
 		}
 	}
 	return nil
