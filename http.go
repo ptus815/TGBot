@@ -581,10 +581,11 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		// 启动并发下载协程
 		go stream.start(start, end)
 		defer func() {
-			if stream.Version.Load() > 0 {
+			if stream.Version.Load() > msCache.Version.Load() {
 				infos.Mutex.Lock()
 				msCache.Mes = stream.Ms
 				msCache.Time = time.Now()
+				msCache.Version.Store(stream.Version.Load())
 				infos.Mutex.Unlock()
 			}
 
