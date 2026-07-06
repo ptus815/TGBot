@@ -622,14 +622,14 @@ func botConf(cate string) (conf telegram.ClientConfig) {
 			waitSec := time.Duration(wait+1) * time.Second
 			waitUntil := time.Now().Add(waitSec)
 			infos.WaitUntil.Store(waitUntil.Unix())
-			
+
 			timer := time.NewTimer(waitSec)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
 			case <-timer.C:
 			}
-			
+
 			return true
 		},
 	}
@@ -915,6 +915,7 @@ func (infos *Infos) handleMs(params HandleMs) (result *MsCache, err error) {
 	return result, nil
 }
 
+// 刷新消息, 用于异步下载完成后的缓存更新
 func (infos *Infos) refreshMs(version int64, params HandleMs, msCache *MsCache) (src telegram.NewMessage, err error) {
 	infos.Mutex.Lock()
 	defer infos.Mutex.Unlock()
@@ -927,12 +928,11 @@ func (infos *Infos) refreshMs(version int64, params HandleMs, msCache *MsCache) 
 			}
 			return src, nil
 		} else {
-			if infos.Conf.DeBUG {
-				log.Printf("文件引用已刷新, 但未获取到消息, cid=%d, mids=%v, version=%d, newVersion=%d", params.CID, params.MIDs, version, msCache.Version.Load())
-			}
+			log.Printf("文件引用已刷新, 但未获取到消息, cid=%d, mids=%v, version=%d, newVersion=%d", params.CID, params.MIDs, version, msCache.Version.Load())
 			return src, errors.New("未获取到消息")
 		}
 	}
+
 	// 重新获取消息
 	ms, err := infos.Client.GetMessages(params.CID, &telegram.SearchOption{
 		IDs:     params.MIDs,
@@ -956,6 +956,9 @@ func (infos *Infos) refreshMs(version int64, params HandleMs, msCache *MsCache) 
 	msCache.Mes = ms
 	msCache.Time = time.Now()
 	msCache.Version.Add(1)
+	if infos.Conf.DeBUG {
+		log.Printf("缓存数据更新, cid=%d, mids=%v, name=%s, version=%d", params.CID, params.MIDs, src.File.Name, msCache.Version.Load())
+	}
 	return src, nil
 }
 
@@ -1017,7 +1020,7 @@ func (infos *Infos) handleChannel(channel string, hash ...int64) (result Channel
 			}
 			result.Time = time.Now()
 			infos.Mutex.Lock()
-			evictOldestChannelCache(infos.ChannelID, infos.MaxMs)
+			evictOldestChannelCache(infos.ChannelID, infos.MaxChannel)
 			infos.ChannelID[channel] = &result
 			infos.Mutex.Unlock()
 		}

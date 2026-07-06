@@ -150,6 +150,7 @@ type Infos struct {
 	LatestID    string                  // 最近一次获取的消息 ID
 	LatestCount int                     // 最近一次获取的消息数量
 	MaxMs       int                     // 最大消息数
+	MaxChannel  int                     // 最大频道数
 	MaxMedia    int                     // 最大媒体数
 	BotID       int64                   // Bot 自身的 ID
 	Status      atomic.Int32            // UserBot 登录状态: 0 未登录, 1 等待验证码, 2 等待二步验证, 3 已登录
@@ -294,24 +295,25 @@ func main() {
 
 // newInfos 初始化全局 Infos 对象, 加载日志和配置
 func newInfos(filePath, filesPath string) (*Infos, error) {
-	maxMs := 128
+	maxChannel := 16
 	maxMedia := 4
 	mutex := new(sync.RWMutex)
 	infos := &Infos{
-		MaxMs:     maxMs,
-		MaxMedia:  maxMedia,
-		FilePath:  filePath,
-		FilesPath: filesPath,
-		Mutex:     mutex,
-		Cond:      sync.NewCond(mutex),
-		Code:      make(chan string, 1),
-		Pass:      make(chan string, 1),
-		HeadCache: make(map[string]*MediaCache, maxMedia),
-		TailCache: make(map[string]*MediaCache, maxMedia),
-		MsCache:   make(map[string]*MsCache, maxMs),
-		ChannelID: make(map[string]*ChannelInfo, maxMs),
-		IDs:       make(map[int64]ID),
-		Rex:       regexp.MustCompile(`(?i)(?:FLOOD(?:_PREMIUM)?_WAIT_(\d+)|WAIT(?:\s+OF)?\s*(\d+))`),
+		MaxMs:      maxChannel * 16,
+		MaxChannel: maxChannel,
+		MaxMedia:   maxMedia,
+		FilePath:   filePath,
+		FilesPath:  filesPath,
+		Mutex:      mutex,
+		Cond:       sync.NewCond(mutex),
+		Code:       make(chan string, 1),
+		Pass:       make(chan string, 1),
+		HeadCache:  make(map[string]*MediaCache, maxMedia),
+		TailCache:  make(map[string]*MediaCache, maxMedia),
+		MsCache:    make(map[string]*MsCache, maxChannel * 16),
+		ChannelID:  make(map[string]*ChannelInfo, maxChannel),
+		IDs:        make(map[int64]ID),
+		Rex:        regexp.MustCompile(`(?i)(?:FLOOD(?:_PREMIUM)?_WAIT_(\d+)|WAIT(?:\s+OF)?\s*(\d+))`),
 	}
 
 	// 创建日志文件

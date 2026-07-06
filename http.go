@@ -574,12 +574,15 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		// 启动并发下载协程
 		go stream.start(start, end)
 		defer func() {
-			if stream.Version.Load() > msCache.Version.Load() {
+			if stream.Version.Load() > 0 {
 				infos.Mutex.Lock()
 				msCache.Mes = stream.Ms
 				msCache.Time = time.Now()
-				msCache.Version.Store(stream.Version.Load())
+				msCache.Version.Add(1)
 				infos.Mutex.Unlock()
+				if infos.Conf.DeBUG {
+					log.Printf("缓存数据更新, cid=%d, mid=%d, name=%s, version=%d", params.CID, params.MID, fileName, msCache.Version.Load())
+				}
 			}
 
 			// 异步清理：不阻塞当前请求 goroutine 返回，使新请求能立即被处理
