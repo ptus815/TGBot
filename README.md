@@ -1,6 +1,10 @@
 # TGFileBot
 
+[English](README_en.md) | [中文](README.md)
+
 TGFileBot 是一个 Telegram Bot 和 UserBot 深度结合的开源项目，旨在提供高性能的文件直链提取、媒体分片流式传输以及完善的远程机器人管理功能。
+
+> ⚠️ **重要提示**: 本项目使用了修改版的 [gogram](https://github.com/lm317379829/gogram) 库。
 
 **⭐ 项目特色**：采用生产级并发架构，支持 HTTP Range 分片流式下载、自动引用刷新、多级缓存优化等高级特性。
 
@@ -88,6 +92,10 @@ go run main.go [options]
 
 #### 本地运行
 
+**直接运行编译好的文件（推荐）**
+前往 [Releases](https://github.com/lm317379829/TGFileBot/releases) 页面，下载对应系统的可执行文件，解压后直接运行即可。
+
+**从源码编译运行**
 ```bash
 # 安装依赖
 go mod tidy
@@ -104,16 +112,39 @@ go run main.go -v
 
 #### Docker 部署
 
-```bash
-# 使用 Docker Compose（推荐）
-docker-compose up -d
+项目已提供预构建的 Docker 镜像：`lm317379829/tgfilebot`。
 
-# 或者手动构建与运行
-docker build -t tgfilebot .
+**方法一：使用 Docker 命令行**
+
+直接拉取镜像并运行：
+
+```bash
 docker run -d --name tgfilebot \
+  --restart unless-stopped \
   -p 8080:8080 \
   -v $(pwd)/files:/root/files \
-  tgfilebot
+  lm317379829/tgfilebot
+```
+
+**方法二：使用 Docker Compose（推荐）**
+
+在服务器上新建一个 docker-compose.yml 文件，并写入以下内容：
+```yml
+version: '3.8'
+services:
+  tgfilebot:
+    image: lm317379829/tgfilebot:latest
+    container_name: tgfilebot
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./files:/root/files
+```
+
+```bash
+# 启动服务
+docker-compose up -d
 
 # 查看日志
 docker logs -f tgfilebot
