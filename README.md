@@ -294,9 +294,29 @@ docker stop tgfilebot
 **响应示例**:
 ```json
 [
-  "https://example.com/stream?cid=-1001234567890&mid=100&cate=user&hash=a1b2c3&uid=987654321",
-  "https://example.com/stream?cid=-1001234567890&mid=101&cate=user&hash=a1b2c3&uid=987654321"
-]
+  { 
+    "ext": ".mp4",
+    "src": "Video Title",
+    "name": "example.mp4", 
+    "username": "My Channel Name",
+    "mid": 100, 
+    "cid": -1001234567890, 
+    "gid": 0,
+    "size": 104857600,
+    "date": 1672531200
+    },
+    { 
+    "ext": ".mp4",
+    "src": "Video Title2",
+    "name": "example2.mp4", 
+    "username": "My Channel Name",
+    "mid": 101, 
+    "cid": -1001234567890, 
+    "gid": 0,
+    "size": 104857600,
+    "date": 1672531200
+    }
+  ]
 ```
 
 ---
