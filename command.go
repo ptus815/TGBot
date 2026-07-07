@@ -720,6 +720,9 @@ func handleMess(m *telegram.NewMessage) error {
 	// 如果是用户发送或转发来的、带有图片/文档/视频的消息，直接生成直链
 	if m.IsMedia() && (m.Photo() != nil || m.Document() != nil || m.Video() != nil) {
 		link := fmt.Sprintf("%s/stream?cid=%d&mid=%d&cate=bot", strings.TrimSuffix(infos.Conf.Site, "/"), m.ChatID(), m.ID)
+		if m.Channel.Username != "" {
+			link += fmt.Sprintf("&cname=%s", m.Channel.Username)
+		}
 		if infos.Conf.Password != "" {
 			link += fmt.Sprintf("&hash=%s&uid=%d", infos.calculateHash(m.SenderID()), m.SenderID())
 		}
@@ -747,9 +750,16 @@ func handleMess(m *telegram.NewMessage) error {
 		M:       m,
 		Matches: matches,
 	}
-	links := hackLinks(res)
-	if len(links) == 0 {
+	items, err := hackLinks(res)
+	if err != nil {
+		return err
+	}
+	if len(items) == 0 {
 		return nil
+	}
+	links := make([]string, 0, len(items))
+	for _, item := range items {
+		links = append(links, handleLinks(res, item))
 	}
 	if err := sendLink(m, links); err != nil {
 		log.Printf("发送消息失败: %+v", err)

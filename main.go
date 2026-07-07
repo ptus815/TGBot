@@ -39,10 +39,11 @@ type Params struct {
 }
 
 type ChannelInfo struct {
-	CID  int64
-	Hash int64
-	Peer telegram.InputPeer
-	Time time.Time
+	CID      int64
+	Hash     int64
+	UserName string
+	Peer     telegram.InputPeer
+	Time     time.Time
 }
 
 // HackLink 结构体用于在处理提取链接时传递中间数据
@@ -63,6 +64,7 @@ type HandleMs struct {
 	MIDs     []int32
 	Cate     string
 	Words    string
+	CNames   []string
 	Ctx      context.Context
 	Filter   telegram.MessagesFilter
 }
@@ -105,14 +107,15 @@ type MsCache struct {
 }
 
 type Item struct {
-	Ext  string `json:"ext"`
-	Src  string `json:"src"`
-	Name string `json:"name"`
-	Date int32  `json:"date"`
-	MID  int32  `json:"mid"`
-	CID  int64  `json:"cid"`
-	GID  int64  `json:"gid"`
-	Size int64  `json:"size"`
+	Ext      string `json:"ext"`
+	Src      string `json:"src"`
+	Name     string `json:"name"`
+	Username string `json:"username"`
+	Date     int32  `json:"date"`
+	MID      int32  `json:"mid"`
+	CID      int64  `json:"cid"`
+	GID      int64  `json:"gid"`
+	Size     int64  `json:"size"`
 }
 
 type Items struct {
@@ -310,7 +313,7 @@ func newInfos(filePath, filesPath string) (*Infos, error) {
 		Pass:       make(chan string, 1),
 		HeadCache:  make(map[string]*MediaCache, maxMedia),
 		TailCache:  make(map[string]*MediaCache, maxMedia),
-		MsCache:    make(map[string]*MsCache, maxChannel * 16),
+		MsCache:    make(map[string]*MsCache, maxChannel*16),
 		ChannelID:  make(map[string]*ChannelInfo, maxChannel),
 		IDs:        make(map[int64]ID),
 		Rex:        regexp.MustCompile(`(?i)(?:FLOOD(?:_PREMIUM)?_WAIT_(\d+)|WAIT(?:\s+OF)?\s*(\d+))`),

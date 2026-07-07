@@ -402,12 +402,12 @@ docker stop tgfilebot
 
 **URL 格式**:
 ```
-/sources?cid={频道ID}&mid={消息ID}&filter={过滤大小}&key={key}
+/sources?cid={频道ID}&cname={频道用户名}&mid={消息ID}&filter={过滤大小}&key={key}
 ```
 
 | 参数 | 必填 | 说明 |
 |:---|:---:|:---|
-| `cid` | 是 | 频道ID |
+| `cid` 或 `cname` | 是 | 频道 ID 或用户名（两者二选一）|
 | `mid` | 是 | 消息ID |
 | `filter` | 否 | 过滤文件大小，默认 `128K` |
 | `key` / `hash` / `uid` | 否* | 鉴权参数（同上）|
@@ -420,12 +420,7 @@ docker stop tgfilebot
 
 **URL 格式**:
 ```
-/comments?cid={频道ID}&mid={消息ID}&offset={偏移ID}&filter={过滤大小}&key={key}
-```
-
-或使用频道用户名：
-```
-/comments?cname={频道��户名}&mid={消息ID}&offset={偏移ID}&key={key}
+/comments?cid={频道ID}&cname={频道用户名}&mid={消息ID}&offset={偏移ID}&filter={过滤大小}&key={key}
 ```
 
 | 参数 | 必填 | 说明 |
@@ -493,8 +488,8 @@ print(f"?hash={hash_value}&uid={uid}")
 
 | 缓存类型 | 作用 | 容量 |
 |:---|:---|:---|
-| **消息缓存** | 减少 Telegram API 调用 | 128 条最近消息 |
-| **频道缓存** | 缓存频道 ID 解析结果 | 128 个频道信息 |
+| **消息缓存** | 减少 Telegram API 调用 | 256 条最近消息 |
+| **频道缓存** | 缓存频道 ID 解析结果 | 16 个频道信息 |
 | **头部分片缓存** | 优化序列播放和预加载 | 可配置，默认 8-16MB |
 | **尾部分片缓存** | 优化快进（拖到末尾）场景 | 可配置，默认 8-16MB |
 

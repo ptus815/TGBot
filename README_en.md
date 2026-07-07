@@ -402,12 +402,12 @@ Used to obtain all files in a media group (multi-image/multi-video message) at o
 
 **URL Format**:
 ```
-/sources?cid={channel_ID}&mid={message_ID}&filter={size_filter}&key={key}
+/sources?cid={channel_ID}&cname={channel_username}&mid={message_ID}&filter={size_filter}&key={key}
 ```
 
 | Parameter | Required | Description |
 |:---|:---:|:---|
-| `cid` | Yes | Channel ID |
+| `cid` or `cname` | Yes | Channel ID or username (choose one) |
 | `mid` | Yes | Message ID |
 | `filter` | No | Filter file size, default `128K` |
 | `key` / `hash` / `uid` | No* | Authentication parameters (same as above) |
@@ -420,12 +420,7 @@ Extracts media files from a message's comment area.
 
 **URL Format**:
 ```
-/comments?cid={channel_ID}&mid={message_ID}&offset={offset_id}&filter={size_filter}&key={key}
-```
-
-Or use channel username:
-```
-/comments?cname={channel_username}&mid={message_ID}&offset={offset_id}&key={key}
+/comments?cid={channel_ID}&cname={channel_username}&mid={message_ID}&offset={offset_id}&filter={size_filter}&key={key}
 ```
 
 | Parameter | Required | Description |
@@ -493,8 +488,8 @@ Addressing the `file_reference` expiration issue within Telegram:
 
 | Cache Type | Function | Capacity |
 |:---|:---|:---|
-| **Message Cache** | Reduce Telegram API calls | 128 recent messages |
-| **Channel Cache** | Cache channel ID parsing results | 128 channel infos |
+| **Message Cache** | Reduce Telegram API calls | 256 recent messages |
+| **Channel Cache** | Cache channel ID parsing results | 16 channel infos |
 | **Head Chunk Cache** | Optimize sequential playback and preloading | Configurable, default 8-16MB |
 | **Tail Chunk Cache** | Optimize fast-forward (seek to end) scenarios | Configurable, default 8-16MB |
 

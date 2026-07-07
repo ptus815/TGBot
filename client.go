@@ -858,10 +858,21 @@ func (infos *Infos) handleMs(params HandleMs) (result *MsCache, err error) {
 		params.Limit = 100
 	}
 
+	src := ""
 	kname := params.Cate
 
+	if len(params.CNames) > 0 {
+		channel, err := infos.handleChannel(params.CNames[0])
+		if err != nil {
+			return result, err
+		}
+		params.CID = channel.CID
+		src = "name=" + channel.UserName
+		kname += ":" + channel.UserName
+	}
+
 	cidStr := strconv.FormatInt(params.CID, 10)
-	src := "cid=" + cidStr
+	src = "cid=" + cidStr
 	kname += ":" + cidStr
 
 	if len(params.MIDs) > 0 {
@@ -1012,6 +1023,7 @@ func (infos *Infos) handleChannel(channel string, hash ...int64) (result Channel
 				log.Printf("频道解析失败: %+v", err)
 				return result, err
 			}
+			result.UserName = channel
 			result.Peer = values
 			switch value := values.(type) {
 			case *telegram.InputPeerChannel:
@@ -1117,8 +1129,11 @@ func (infos *Infos) handleComments(mid, offset int32, ms *[]telegram.NewMessage)
 }
 
 // handleLinks 处理消息媒体, 返回直链
-func handleLinks(res HackLink, src telegram.NewMessage) (link string) {
-	link = fmt.Sprintf("%s/stream?cid=%v&mid=%d&cate=user", strings.TrimSuffix(infos.Conf.Site, "/"), src.ChatID(), src.ID)
+func handleLinks(res HackLink, item Item) (link string) {
+	link = fmt.Sprintf("%s/stream?cid=%v&mid=%d&cate=user", strings.TrimSuffix(infos.Conf.Site, "/"), item.CID, item.MID)
+	if item.Username != "" {
+		link += fmt.Sprintf("&cname=%s", item.Username)
+	}
 
 	if infos.Conf.Password != "" {
 		if res.M != nil {
@@ -1164,6 +1179,7 @@ func handleItem(m telegram.NewMessage) (item Item) {
 	item.Name = name
 	item.Size = m.File.Size
 	item.CID = m.Channel.ID
+	item.Username = m.Channel.Username
 	item.MID = m.ID
 	if m.Message != nil {
 		item.Date = m.Message.Date

@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -220,8 +219,8 @@ func handlePic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	if params.CID == 0 {
-		http.Error(w, "频道ID无效", http.StatusBadRequest)
+	if params.CID == 0 && len(params.Channels) == 0 {
+		http.Error(w, "频道信息无效", http.StatusBadRequest)
 		return
 	}
 	if params.MID == 0 {
@@ -230,11 +229,12 @@ func handlePic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	param := HandleMs{
-		CID:   params.CID,
-		MIDs:  []int32{params.MID},
-		Ctx:   r.Context(),
-		Cate:  params.Cate,
-		Limit: 1,
+		CID:    params.CID,
+		CNames: params.Channels,
+		MIDs:   []int32{params.MID},
+		Ctx:    r.Context(),
+		Cate:   params.Cate,
+		Limit:  1,
 	}
 
 	msCache, err := infos.handleMs(param)
@@ -421,13 +421,19 @@ func handleLink(w http.ResponseWriter, r *http.Request) {
 	res.Hash = params.Hash
 	res.Offset = params.Offset
 
-	links := hackLinks(res)
-	if len(links) == 0 {
+	items, err := hackLinks(res)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(items) == 0 {
 		http.Error(w, "未找到可下载的媒体", http.StatusNotFound)
 		return
 	}
 
-	result, err := json.Marshal(links)
+	sortItems(items, params.Reverse)
+
+	result, err := json.Marshal(items)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -453,8 +459,8 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if params.CID == 0 {
-		http.Error(w, "频道ID无效", http.StatusBadRequest)
+	if params.CID == 0 && len(params.Channels) == 0 {
+		http.Error(w, "频道信息无效", http.StatusBadRequest)
 		return
 	}
 	if params.MID == 0 {
@@ -463,11 +469,12 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	param := HandleMs{
-		CID:   params.CID,
-		MIDs:  []int32{params.MID},
-		Ctx:   r.Context(),
-		Cate:  params.Cate,
-		Limit: 1,
+		CID:    params.CID,
+		CNames: params.Channels,
+		MIDs:   []int32{params.MID},
+		Ctx:    r.Context(),
+		Cate:   params.Cate,
+		Limit:  1,
 	}
 
 	msCache, err := infos.handleMs(param)
@@ -486,7 +493,8 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	src := ms[0]
 	size := src.File.Size
 	fileName := src.File.Name
-	if size < infos.Conf.MaxSize*int64(infos.Conf.Workers) {
+	chunkSize := 1 * 1024 * 1024
+	if size < int64(chunkSize*infos.Conf.Workers) {
 		clientIP := GetClientIP(r)
 		log.Printf("正在处理来自 %s 的请求, 开始下载, cid=%d, mid=%d, name=%s", clientIP, params.CID, params.MID, fileName)
 		buf := new(bytes.Buffer)
@@ -494,8 +502,10 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 		for count := 1; count <= maxCount; count++ {
 			version := msCache.Version.Load()
 			_, err = infos.Client.DownloadMedia(src.Media(), &telegram.DownloadOptions{
-				Buffer: buf,
-				Ctx:    r.Context(),
+				Buffer:    buf,
+				ChunkSize: int32(chunkSize),
+				Threads:   infos.Conf.Workers,
+				Ctx:       r.Context(),
 			})
 			if err != nil {
 				if telegram.MatchError(err, "FILE_REFERENCE_EXPIRED") {
@@ -686,21 +696,23 @@ func handleSources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
+	if params.CID == 0 && len(params.Channels) == 0 {
+		http.Error(w, "频道信息无效", http.StatusBadRequest)
+		return
+	}
+
 	if params.MID == 0 {
 		http.Error(w, "消息ID无效", http.StatusBadRequest)
 		return
 	}
-	if params.CID == 0 {
-		http.Error(w, "频道ID无效", http.StatusBadRequest)
-		return
-	}
 
 	param := HandleMs{
-		CID:   params.CID,
-		MIDs:  []int32{params.MID},
-		Ctx:   r.Context(),
-		Cate:  params.Cate,
-		Limit: params.Limit,
+		CID:    params.CID,
+		CNames: params.Channels,
+		MIDs:   []int32{params.MID},
+		Ctx:    r.Context(),
+		Cate:   params.Cate,
+		Limit:  params.Limit,
 	}
 
 	msCache, err := infos.handleMs(param)
@@ -919,8 +931,8 @@ func handleComments(w http.ResponseWriter, r *http.Request) {
 		params.CID = result.CID
 	}
 
-	if params.CID == 0 {
-		http.Error(w, "频道ID无效", http.StatusBadRequest)
+	if params.CID == 0 && len(params.Channels) == 0 {
+		http.Error(w, "频道信息无效", http.StatusBadRequest)
 		return
 	}
 	if params.MID == 0 {
@@ -929,11 +941,12 @@ func handleComments(w http.ResponseWriter, r *http.Request) {
 	}
 
 	param := HandleMs{
-		CID:   params.CID,
-		MIDs:  []int32{params.MID},
-		Ctx:   r.Context(),
-		Cate:  "user",
-		Limit: params.Limit,
+		CID:    params.CID,
+		CNames: params.Channels,
+		MIDs:   []int32{params.MID},
+		Ctx:    r.Context(),
+		Cate:   "user",
+		Limit:  params.Limit,
 	}
 
 	msCache, err := infos.handleMs(param)
@@ -1022,10 +1035,10 @@ func handleMediaCate(fileName string) string {
 }
 
 // hackLinks 是链接解析的核心逻辑，负责将 t.me 链接映射到具体的媒体消息并生成本程序的流地址
-func hackLinks(res HackLink) (links []string) {
-	var errs error
+func hackLinks(res HackLink) (items []Item, errs error) {
 	for _, match := range res.Matches {
-		var cid int64 // 用于 ResolvePeer 的标识项（可以是用户名或 chatID）
+		var username string
+		var cid int64 // 用于 ResolvePeer 的标识项
 		var mid int32 // 消息 ID
 
 		// 1. 解析 Chat ID 或 Username
@@ -1050,6 +1063,7 @@ func hackLinks(res HackLink) (links []string) {
 				continue
 			}
 			cid = channelInfo.CID
+			username = channelInfo.UserName
 		}
 
 		// 2. 解析消息偏移 ID
@@ -1064,20 +1078,25 @@ func hackLinks(res HackLink) (links []string) {
 
 		// 3. 使用 UserBot 客户端尝试获取目标消息
 		param := HandleMs{
-			CID:   cid,
-			MIDs:  []int32{mid},
-			Ctx:   res.Ctx,
-			Cate:  "user",
-			Limit: 1,
+			CID:    cid,
+			CNames: []string{username},
+			MIDs:   []int32{mid},
+			Ctx:    res.Ctx,
+			Cate:   "user",
+			Limit:  1,
 		}
 
 		msCache, err := infos.handleMs(param)
 		ms := msCache.Mes
-		if err != nil || len(ms) == 0 {
-			log.Printf("获取消息失败: cid=%v, mid=%d, err=%v, count=%d", cid, mid, err, len(ms))
-			if len(ms) == 0 {
-				err = errors.New("未获取到消息")
-			}
+		if err != nil {
+			log.Printf("获取消息失败: cid=%v, mid=%d, count=%d, err=%+v", cid, mid, len(ms), err)
+			errs = errors.Join(errs, err)
+			continue
+		}
+
+		if len(ms) == 0 {
+			log.Printf("未获取到消息: cid=%v, mid=%d", cid, mid)
+			err = errors.New("未获取到消息")
 			errs = errors.Join(errs, err)
 			continue
 		}
@@ -1091,27 +1110,27 @@ func hackLinks(res HackLink) (links []string) {
 			}
 		}
 
+		items = make([]Item, 0, len(ms))
 		for _, src := range ms {
 			if src.Message.GroupedID != 0 {
 				medias, err := src.GetMediaGroup()
 				if err != nil {
 					log.Printf("提取媒体组错误: %+v", err)
 				}
-				slices.Reverse(medias)
 				for _, media := range medias {
-					links = append(links, handleLinks(res, media))
+					items = append(items, handleItem(media))
 				}
 			} else {
 				if !src.IsMedia() {
 					log.Printf("消息不包含媒体: cid=%v, mid=%d", cid, mid)
 					continue
 				}
-				links = append(links, handleLinks(res, src))
+				items = append(items, handleItem(src))
 			}
 		}
 	}
 
-	if len(links) == 0 {
+	if len(items) == 0 {
 		errs = errors.Join(errs, errors.New("未获取到有效链接"))
 	}
 
@@ -1119,6 +1138,7 @@ func hackLinks(res HackLink) (links []string) {
 		if _, err := res.M.Reply(errs.Error()); err != nil {
 			log.Printf("发送消息失败: %+v", err)
 		}
+		return nil, errs
 	}
-	return links
+	return items, nil
 }
